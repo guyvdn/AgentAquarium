@@ -12,6 +12,10 @@ const REST_DEPTH = 34; // px below the surface line, holding the ladder
 const BREATH_EVERY = 1.8; // s
 const TURN_RATE = 3;
 const LIST_MAX = 8;
+// A pale suit with a dark seam: the water is dark and no fish is white, so it stands out.
+const SUIT = '#eef4f8';
+const SEAM = 'rgba(7, 21, 33, 0.6)';
+const FIN = '#20c4b8';
 
 export class Diver {
   constructor() {
@@ -150,31 +154,44 @@ export class Diver {
     ctx.quadraticCurveTo(26, -14, 27, 1);
     ctx.stroke();
 
-    // Wetsuit, with a stripe down the side.
-    ctx.fillStyle = '#1b2530';
+    // Suit, with a stripe down the side.
+    ctx.fillStyle = SUIT;
+    ctx.strokeStyle = SEAM;
+    ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.roundRect(-8, -7, 28, 13, 6);
     ctx.fill();
+    ctx.stroke();
     ctx.fillStyle = '#e04848';
     ctx.fillRect(-6, -1, 24, 2.5);
 
     // Arm, reaching forward.
-    ctx.strokeStyle = '#1b2530';
-    ctx.lineWidth = 4;
     ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.moveTo(14, 2);
     ctx.quadraticCurveTo(22, 10, 31, 6);
+    ctx.strokeStyle = SEAM;
+    ctx.lineWidth = 6;
+    ctx.stroke();
+    ctx.strokeStyle = SUIT;
+    ctx.lineWidth = 4;
     ctx.stroke();
 
-    // Head: hood and mask.
-    ctx.fillStyle = '#1b2530';
+    // Head: hood and mask, the mask in a dark frame.
+    ctx.fillStyle = SUIT;
+    ctx.strokeStyle = SEAM;
+    ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.arc(24, -2, 6.5, 0, TAU);
     ctx.fill();
-    ctx.fillStyle = 'rgba(150, 225, 255, 0.85)';
+    ctx.stroke();
+    ctx.fillStyle = '#071521';
     ctx.beginPath();
-    ctx.roundRect(26, -6, 6, 6, 2);
+    ctx.roundRect(25, -7, 8, 8, 2.5);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(150, 225, 255, 0.9)';
+    ctx.beginPath();
+    ctx.roundRect(26.2, -5.8, 5.6, 5.6, 1.8);
     ctx.fill();
     ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
     ctx.fillRect(28, -5, 1.5, 3);
@@ -187,14 +204,17 @@ export class Diver {
     ctx.save();
     ctx.translate(-6, dy);
     ctx.rotate(kick * 0.3);
-    ctx.fillStyle = '#1b2530';
+    ctx.fillStyle = SUIT;
+    ctx.strokeStyle = SEAM;
+    ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.roundRect(-20, -2.5, 22, 5, 2.5);
     ctx.fill();
+    ctx.stroke();
     // Fin
     ctx.translate(-20, 0);
     ctx.rotate(kick * 0.35);
-    ctx.fillStyle = '#16a3a0';
+    ctx.fillStyle = FIN;
     ctx.beginPath();
     ctx.moveTo(0, -3);
     ctx.lineTo(-17, -6);
