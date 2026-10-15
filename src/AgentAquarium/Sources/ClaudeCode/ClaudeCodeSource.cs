@@ -13,7 +13,10 @@ public sealed class ClaudeCodeOptions
 
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(1);
 
-    /// <summary>Only sessions written to within this window are picked up.</summary>
+    /// <summary>
+    /// Fallback when the live-session registry is missing (older Claude Code): sessions whose
+    /// transcript changed within this window are shown instead.
+    /// </summary>
     public TimeSpan LookBack { get; set; } = TimeSpan.FromMinutes(30);
 
     /// <summary>
