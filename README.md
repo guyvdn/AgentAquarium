@@ -28,6 +28,8 @@ dotnet run --project src/AgentAquarium --launch-profile demo   # synthetic agent
 
 Open http://localhost:5180.
 
+To give it a window of its own, install it as an app: in Edge, **⋯ › Apps › Install this site as an app**; in Chrome, **⋮ › Cast, save and share › Install page as app**. The window only has something to show while the server runs.
+
 ### Plugin: permission prompts in SDK hosts
 
 In Claude Code, run once:
