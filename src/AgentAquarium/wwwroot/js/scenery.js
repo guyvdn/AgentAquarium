@@ -68,7 +68,10 @@ export class Scenery {
 
     g.beginPath();
     g.moveTo(0, height);
-    for (let x = 0; x <= width; x += 20) g.lineTo(x, this.floor + Math.sin(x / 90) * 8 + Math.sin(x / 31) * 3);
+    const surface = x => this.floor + Math.sin(x / 90) * 8 + Math.sin(x / 31) * 3;
+    for (let x = 0; x < width; x += 20) g.lineTo(x, surface(x));
+    // The last step rarely lands on the edge; finish there, or the corner is cut diagonally.
+    g.lineTo(width, surface(width));
     g.lineTo(width, height);
     g.closePath();
     const grad = g.createLinearGradient(0, this.floor - 10, 0, height);
