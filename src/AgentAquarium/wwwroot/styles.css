@@ -152,6 +152,10 @@ canvas#tank {
   color: var(--bad);
 }
 
+.legend .gold {
+  color: #f5c542;
+}
+
 .empty {
   position: fixed;
   inset: 0;

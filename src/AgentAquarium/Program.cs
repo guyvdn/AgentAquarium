@@ -1,3 +1,4 @@
+using System.Net.ServerSentEvents;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
 using AgentAquarium.Domain;
@@ -12,31 +13,48 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.Configure<TankOptions>(builder.Configuration.GetSection("Tank"));
 builder.Services.AddSingleton<AgentRegistry>();
 builder.Services.AddSingleton<IAgentSink>(sp => sp.GetRequiredService<AgentRegistry>());
+builder.Services.AddSingleton<UsageBoard>();
+builder.Services.AddSingleton<IUsageSink>(sp => sp.GetRequiredService<UsageBoard>());
 
 // Sources. Each one translates its own world into IAgentSink calls; add new ones here.
 builder.Services.Configure<ClaudeCodeOptions>(builder.Configuration.GetSection("Sources:ClaudeCode"));
 builder.Services.AddHostedService<ClaudeCodeSource>();
+builder.Services.AddHostedService<ClaudeUsageSource>();
 builder.Services.Configure<DemoOptions>(builder.Configuration.GetSection("Sources:Demo"));
 builder.Services.AddHostedService<DemoSource>();
 
 var app = builder.Build();
 
 app.UseDefaultFiles();
-app.UseStaticFiles();
+// No build step, so no fingerprinted file names: make the browser revalidate every file
+// (a cheap 304 via ETag) instead of guessing a lifetime and running stale modules.
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx => ctx.Context.Response.Headers.CacheControl = "no-cache",
+});
 
 app.MapGet("/api/agents", (AgentRegistry registry) => registry.Snapshot());
 
-app.MapGet("/api/agents/stream", (AgentRegistry registry, CancellationToken ct) =>
-    TypedResults.ServerSentEvents(Stream(registry, ct), eventType: "snapshot"));
+app.MapGet("/api/usage", (UsageBoard usage) => usage.Current is { } current ? Results.Ok(current) : Results.NoContent());
+
+app.MapGet("/api/agents/stream", (AgentRegistry registry, UsageBoard usage, CancellationToken ct) =>
+    TypedResults.ServerSentEvents(Stream(registry, usage, ct)));
 
 app.Run();
 
-static async IAsyncEnumerable<IReadOnlyList<AgentSnapshot>> Stream(
-    AgentRegistry registry, [EnumeratorCancellation] CancellationToken ct)
+// "snapshot" every tick; "usage" on connect and whenever it changes.
+static async IAsyncEnumerable<SseItem<object>> Stream(
+    AgentRegistry registry, UsageBoard usage, [EnumeratorCancellation] CancellationToken ct)
 {
+    UsageSnapshot? sent = null;
     using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
     do
     {
-        yield return registry.Snapshot();
+        yield return new SseItem<object>(registry.Snapshot(), "snapshot");
+        if (usage.Current is { } current && current != sent)
+        {
+            sent = current;
+            yield return new SseItem<object>(current, "usage");
+        }
     } while (await timer.WaitForNextTickAsync(ct));
 }

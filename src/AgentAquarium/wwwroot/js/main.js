@@ -1,5 +1,6 @@
 import { Fish } from './fish.js';
 import { Scenery, Bubbles } from './scenery.js';
+import { Chest } from './chest.js';
 import { fishColor } from './colors.js';
 
 const STREAM_URL = '/api/agents/stream';
@@ -18,13 +19,15 @@ const connectionEl = document.getElementById('connection');
 
 const scenery = new Scenery();
 const bubbles = new Bubbles();
+const chest = new Chest();
 const world = { fish: new Map(), width: 0, height: 0, top: 0, floor: 0 };
 
 let firstSnapshot = true;
 let highlightId = null;
 let hoverId = null;
 let pointer = null;
-let tooltipAgent = null; // the agent snapshot the tooltip was last rendered for
+let tooltipFor = null; // the agent snapshot the tooltip was last rendered for
+let chestTooltip = ''; // the chest's last tooltip markup
 
 // --- layout -----------------------------------------------------------------
 
@@ -38,6 +41,7 @@ function resize() {
   scenery.resize(world.width, world.height, dpr);
   world.top = SURFACE;
   world.floor = scenery.floor;
+  chest.place(world.width, world.floor);
 }
 window.addEventListener('resize', resize);
 resize();
@@ -70,6 +74,13 @@ function connect() {
       return;
     }
     apply(agents);
+  });
+  source.addEventListener('usage', e => {
+    try {
+      chest.set(JSON.parse(e.data), bubbles);
+    } catch (err) {
+      console.warn('Ignoring malformed usage', err);
+    }
   });
 }
 
@@ -154,6 +165,7 @@ function simulate(dt, t) {
       bubbles.spawn(mx, my, 1, 1.2);
     }
 
+  chest.step(dt, bubbles);
   scenery.step(dt, t);
   scenery.emitAmbient(t, bubbles);
   bubbles.step(dt);
@@ -161,11 +173,14 @@ function simulate(dt, t) {
 
 function render(t) {
   scenery.drawBack(ctx, t);
+  chest.draw(ctx, t);
   // Descendants first, so parents swim on top of their school.
   const ordered = [...world.fish.values()].sort((a, b) => b.agent.depth - a.agent.depth || a.len - b.len);
   for (const fish of ordered) fish.draw(ctx, fish.id === highlightId || fish.id === hoverId);
   bubbles.draw(ctx);
+  chest.drawFront(ctx);
   scenery.drawFront(ctx);
+  chest.drawLabel(ctx);
   for (const fish of ordered) if (fish.isRoot) drawLabel(fish);
 }
 
@@ -240,15 +255,25 @@ function fishAt([px, py]) {
 
 function updateTooltip() {
   const fish = pointer && fishAt(pointer);
+  const onChest = !fish && pointer && chest.hit(...pointer);
   hoverId = fish ? fish.id : null;
-  tooltipEl.hidden = !fish;
-  canvas.style.cursor = fish ? 'pointer' : 'default';
-  if (!fish) return;
+  tooltipEl.hidden = !fish && !onChest;
+  canvas.style.cursor = fish || onChest ? 'pointer' : 'default';
+  if (tooltipEl.hidden) return;
 
-  // Rebuild the markup only when a new snapshot arrives or the pointer moves to another fish.
-  if (fish.agent !== tooltipAgent) {
-    tooltipAgent = fish.agent;
+  // Touch the DOM only when the content changes. A fish's changes with each snapshot; the
+  // chest's also with the clock (stale, reset), so compare its markup instead.
+  if (fish && fish.agent !== tooltipFor) {
+    tooltipFor = fish.agent;
+    chestTooltip = '';
     tooltipEl.innerHTML = tooltipHtml(fish.agent);
+  } else if (onChest) {
+    const html = chest.tooltipHtml(escapeHtml);
+    if (html !== chestTooltip) {
+      tooltipFor = null;
+      chestTooltip = html;
+      tooltipEl.innerHTML = html;
+    }
   }
   tooltipEl.style.left = `${Math.min(pointer[0] + TOOLTIP_OFFSET, window.innerWidth - TOOLTIP_ROOM)}px`;
   tooltipEl.style.top = `${pointer[1] + TOOLTIP_OFFSET}px`;

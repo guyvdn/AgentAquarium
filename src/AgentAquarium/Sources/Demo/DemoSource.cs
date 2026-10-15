@@ -13,8 +13,11 @@ public sealed class DemoOptions
 /// Synthetic agents, for working on the tank without real sessions running.
 /// Also the smallest example of what a new source has to do: upsert, then observe.
 /// </summary>
-public sealed class DemoSource(IAgentSink sink, IOptions<DemoOptions> options, TimeProvider clock) : BackgroundService
+public sealed class DemoSource(IAgentSink sink, IUsageSink usage, IOptions<DemoOptions> options, TimeProvider clock) : BackgroundService
 {
+    // A compressed 5-hour window, so the treasure chest visibly drains and refills.
+    private static readonly TimeSpan DemoWindow = TimeSpan.FromMinutes(3);
+
     private static readonly string[] Projects = ["billing-api", "web-shop", "infra", "mobile-app", "docs-site"];
     private static readonly string[] Tools = ["Read", "Edit", "Bash", "Grep", "Glob", "WebFetch", "Write"];
     private static readonly string[] SubagentTypes = ["Explore", "general-purpose", "Plan", "code-reviewer"];
@@ -22,6 +25,8 @@ public sealed class DemoSource(IAgentSink sink, IOptions<DemoOptions> options, T
     private readonly Random _random = new();
     private readonly List<Fake> _agents = [];
     private int _next;
+    private double _fiveHourUsed;
+    private DateTimeOffset _fiveHourResets;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -30,6 +35,8 @@ public sealed class DemoSource(IAgentSink sink, IOptions<DemoOptions> options, T
 
         for (var i = 0; i < options.Value.Sessions; i++)
             Spawn(null);
+        _fiveHourUsed = 20 + _random.NextDouble() * 40;
+        _fiveHourResets = clock.GetUtcNow() + DemoWindow;
 
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500), clock);
         while (await timer.WaitForNextTickAsync(stoppingToken))
@@ -77,6 +84,23 @@ public sealed class DemoSource(IAgentSink sink, IOptions<DemoOptions> options, T
         }
 
         _agents.RemoveAll(a => a.Done);
+        ReportUsage(now);
+    }
+
+    /// <summary>Busy agents spend the window; it refills when it resets.</summary>
+    private void ReportUsage(DateTimeOffset now)
+    {
+        if (now >= _fiveHourResets)
+        {
+            _fiveHourUsed = 0;
+            _fiveHourResets = now + DemoWindow;
+        }
+        _fiveHourUsed = Math.Min(100, _fiveHourUsed + _agents.Count(a => a.Working) * _random.NextDouble() * 0.15);
+        usage.Report(new UsageSnapshot(
+            new UsageWindow(Math.Round(_fiveHourUsed), _fiveHourResets),
+            new UsageWindow(37, now.AddDays(3)),
+            now,
+            "demo"));
     }
 
     private int Children(Fake parent) => _agents.Count(a => a.ParentId == parent.Id);

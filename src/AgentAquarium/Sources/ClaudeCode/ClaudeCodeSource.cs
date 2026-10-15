@@ -15,6 +15,14 @@ public sealed class ClaudeCodeOptions
 
     /// <summary>Only sessions written to within this window are picked up.</summary>
     public TimeSpan LookBack { get; set; } = TimeSpan.FromMinutes(30);
+
+    /// <summary>
+    /// Claude Code's global config file, where it caches plan usage. Defaults to ~/.claude.json;
+    /// a profile with its own CLAUDE_CONFIG_DIR keeps it at &lt;dir&gt;/.claude.json. Empty turns usage off.
+    /// </summary>
+    public string? UsageFile { get; set; }
+
+    public TimeSpan UsagePollInterval { get; set; } = TimeSpan.FromSeconds(10);
 }
 
 /// <summary>
