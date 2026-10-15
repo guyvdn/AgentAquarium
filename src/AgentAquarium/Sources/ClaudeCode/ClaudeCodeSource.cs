@@ -85,7 +85,7 @@ public sealed partial class ClaudeCodeSource(
         } while (await timer.WaitForNextTickAsync(stoppingToken));
     }
 
-    private void Poll(IEnumerable<string> roots)
+    internal void Poll(IEnumerable<string> roots)
     {
         var since = clock.GetUtcNow() - _options.LookBack;
 
@@ -97,7 +97,9 @@ public sealed partial class ClaudeCodeSource(
             PollRoot(root, live, since);
         }
 
-        foreach (var file in _files.Values.ToList())
+        // Main transcripts first, so a subagent's parent is known when it is read. Insertion order is no
+        // guide: once a session has been untracked, the dictionary reuses its slots in any order.
+        foreach (var file in _files.Values.OrderBy(f => f.IsSubagent).ToList())
         {
             if (!_files.ContainsKey(file.Path))
                 continue; // untracked earlier in this loop, together with its session
@@ -123,8 +125,10 @@ public sealed partial class ClaudeCodeSource(
         }
 
         // A nested subagent read before the subagent that spawned it was described under the
-        // session; now that every file has been read, its real parent may be known.
-        foreach (var file in _files.Values.Where(f => f.IsSubagent && !f.ParentResolved && f.Tail.Offset > 0))
+        // session; now that every file has been read, its real parent may be known. Not once it has
+        // finished: the tank may already have let it go, and describing it again would bring it back.
+        // A finished nested one read before its parent so keeps the session as parent while it lingers.
+        foreach (var file in _files.Values.Where(f => f.IsSubagent && !f.ParentResolved && !f.Finished && f.Tail.Offset > 0))
             sink.Upsert(Describe(file));
 
         _permissionRequests.AddRange(permissionRequests.Drain());
@@ -303,8 +307,12 @@ public sealed partial class ClaudeCodeSource(
         // and may have forgotten this one if it went quiet and has now woken up.
         sink.Upsert(Describe(file));
 
-        foreach (var observation in observations)
-            sink.Observe(file.AgentId, file.IsSubagent ? EndTurnMeansDone(observation) : observation);
+        foreach (var observation in observations.Select(o => file.IsSubagent ? EndTurnMeansDone(o) : o))
+        {
+            sink.Observe(file.AgentId, observation);
+            if (observation is StatusObserved s)
+                file.Finished = s.Status == AgentStatus.Done;
+        }
 
         // Transcript lines may have set a status; re-apply the registry's, which wins.
         file.ReportedLiveStatus = null;
@@ -420,6 +428,9 @@ public sealed partial class ClaudeCodeSource(
         public string? Entrypoint { get; set; }
         public SubagentMeta? Meta { get; set; }
         public bool ParentResolved { get; set; }
+
+        /// <summary>A subagent whose last reported status is Done.</summary>
+        public bool Finished { get; set; }
 
         /// <summary>Registry entry of the running process, when the registry exists.</summary>
         public LiveSession? Live { get; set; }
