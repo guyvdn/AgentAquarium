@@ -21,6 +21,11 @@ export default [
     },
   },
   {
+    // Page scripts that .claude/skills/docs-media/capture.sh evals in the browser: classic scripts.
+    files: ['.claude/skills/**/*.js'],
+    languageOptions: { ecmaVersion: 'latest', sourceType: 'script', globals: globals.browser },
+  },
+  {
     files: ['*.config.js'],
     languageOptions: { sourceType: 'module', globals: globals.node },
   },
