@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent Aquarium</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐟</text></svg>"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <canvas id="tank"></canvas>
+
+    <header class="hud title">
+      <h1>Agent Aquarium</h1>
+      <span id="connection" class="dot" title="Disconnected"></span>
+    </header>
+
+    <aside class="hud panel">
+      <h2>Schools</h2>
+      <ul id="schools"></ul>
+    </aside>
+
+    <footer class="hud legend">
+      size = context · speed = activity · brightness = generation · <span class="flash">red flash</span> = tool error
+    </footer>
+
+    <div id="empty" class="empty" hidden>
+      <p>The tank is empty.</p>
+      <p class="hint">
+        No Claude Code session has written a transcript recently.<br />Start one, or run with the
+        <code>demo</code> launch profile.
+      </p>
+    </div>
+
+    <div id="tooltip" class="tooltip" hidden></div>
+
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>

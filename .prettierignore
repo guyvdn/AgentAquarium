@@ -1,0 +1,11 @@
+# Only the front end and the JS tooling files are Prettier's business.
+*
+!src/
+!src/AgentAquarium/
+!src/AgentAquarium/wwwroot/
+!src/AgentAquarium/wwwroot/**
+!package.json
+!eslint.config.js
+!stylelint.config.js
+!.prettierrc
+!.htmlvalidate.mjs

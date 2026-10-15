@@ -1,0 +1,23 @@
+{
+  "name": "agent-aquarium-frontend",
+  "private": true,
+  "description": "Lint and format tooling for the static front end in src/AgentAquarium/wwwroot. No runtime dependencies.",
+  "type": "module",
+  "scripts": {
+    "lint": "npm run lint:js && npm run lint:css && npm run lint:html",
+    "lint:js": "eslint .",
+    "lint:css": "stylelint \"src/AgentAquarium/wwwroot/**/*.css\"",
+    "lint:html": "html-validate \"src/AgentAquarium/wwwroot/**/*.html\"",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.12.0",
+    "globals": "^17.13.0",
+    "html-validate": "^11.16.2",
+    "prettier": "^3.9.10",
+    "stylelint": "^17.16.0",
+    "stylelint-config-standard": "^40.0.0"
+  }
+}
