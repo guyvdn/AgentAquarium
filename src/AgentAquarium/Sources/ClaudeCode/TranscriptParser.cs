@@ -121,6 +121,8 @@ public static class TranscriptParser
                          + Long(usage, "output_tokens");
             if (tokens > 0)
                 observations.Add(new ContextObserved(at, tokens));
+            if (Spend(usage) is > 0 and var spent)
+                observations.Add(new SpendObserved(at, Str(message, "id"), spent));
         }
 
         var handedBack = false;
@@ -144,6 +146,22 @@ public static class TranscriptParser
         observations.Add(waits.Count > 0
             ? new StatusObserved(at, AgentStatus.Waiting, waits[0].Reason)
             : new StatusObserved(at, working ? AgentStatus.Working : AgentStatus.Idle));
+    }
+
+    /// <summary>
+    /// Input-equivalent tokens, with API pricing's ratios: a cache read is a tenth of fresh input,
+    /// a cache write 1.25× (5-minute) or 2× (1-hour), output 5×. The model's own price is left out.
+    /// </summary>
+    internal static long Spend(JsonElement usage)
+    {
+        var written = Long(usage, "cache_creation_input_tokens");
+        // The total wins over the split: a /compact summary line has a split under a total of 0.
+        var oneHour = usage.TryGetProperty("cache_creation", out var split)
+            ? Math.Min(written, Long(split, "ephemeral_1h_input_tokens"))
+            : 0;
+        var fiveMinute = written - oneHour;
+        return (long)(Long(usage, "input_tokens") + 1.25 * fiveMinute + 2 * oneHour
+                      + 0.1 * Long(usage, "cache_read_input_tokens") + 5 * Long(usage, "output_tokens"));
     }
 
     /// <returns>Whether the line carries text or an image, not only tool results.</returns>

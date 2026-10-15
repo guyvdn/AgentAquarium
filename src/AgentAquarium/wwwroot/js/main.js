@@ -94,6 +94,7 @@ function setConnected(live) {
 
 function apply(agents) {
   const seen = new Set();
+  let spent = 0;
 
   // Parents first, so a new child can be born at its parent's mouth.
   for (const agent of [...agents].sort((a, b) => a.depth - b.depth)) {
@@ -101,14 +102,18 @@ function apply(agents) {
     const fish = world.fish.get(agent.id);
     if (fish) {
       fish.leaving = false;
-      showChanges(fish, fish.update(agent));
+      const delta = fish.update(agent);
+      showChanges(fish, delta);
+      spent += delta.spent;
     } else {
+      // A new fish's spending so far is history (a transcript read from the start), not news.
       world.fish.set(agent.id, spawn(agent));
     }
   }
 
   for (const fish of world.fish.values()) if (!seen.has(fish.id)) fish.leaving = true;
 
+  chest.spend(spent);
   firstSnapshot = false;
   renderPanel(agents);
   emptyEl.hidden = agents.length > 0;

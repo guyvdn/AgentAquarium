@@ -53,6 +53,16 @@ public sealed class AgentRegistry(IOptions<TankOptions> options, TimeProvider cl
                 case ContextObserved c:
                     state.ContextTokens = c.Tokens;
                     break;
+                case SpendObserved s:
+                    // A later line of the same response repeats its usage, with output grown since.
+                    var counted = s.MessageId is not null && s.MessageId == state.LastSpendMessage ? state.LastSpend : 0;
+                    // History replayed from a transcript is not spending happening now. Only its last
+                    // minute gets through, after a restart or a resume; the browser caps what that costs.
+                    if (clock.GetUtcNow() - s.At <= _options.ActivityWindow)
+                        state.SpentTokens += Math.Max(0, s.Tokens - counted);
+                    state.LastSpendMessage = s.MessageId;
+                    state.LastSpend = Math.Max(s.Tokens, counted);
+                    break;
                 case ToolCallObserved t:
                     state.ToolCalls++;
                     state.LastTool = t.ToolName;
@@ -131,6 +141,9 @@ public sealed class AgentRegistry(IOptions<TankOptions> options, TimeProvider cl
         public bool StatusKnown { get; set; }
         public string? WaitingFor { get; set; }
         public long ContextTokens { get; set; }
+        public long SpentTokens { get; set; }
+        public string? LastSpendMessage { get; set; }
+        public long LastSpend { get; set; }
         public int ToolCalls { get; set; }
         public int Errors { get; set; }
         public int Compactions { get; set; }
@@ -153,7 +166,7 @@ public sealed class AgentRegistry(IOptions<TankOptions> options, TimeProvider cl
 
             var d = Descriptor;
             return new AgentSnapshot(d.Id, d.ParentId, d.SessionId, d.Source, d.Label, d.Detail, d.Depth,
-                ContextTokens, status, WaitingFor, since, activity, ToolCalls, Errors, Compactions, LastTool, LastSeen);
+                ContextTokens, SpentTokens, status, WaitingFor, since, activity, ToolCalls, Errors, Compactions, LastTool, LastSeen);
         }
     }
 }

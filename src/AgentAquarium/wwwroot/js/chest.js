@@ -1,5 +1,7 @@
 // The treasure chest: the plan's 5-hour limit. The gold is what is left of it, the lid opens
-// as far as there is gold to show, and spending lets coins float away.
+// as far as there is gold to show, and spending lets coins float away. The limit's numbers
+// arrive every 20 minutes or so, too rarely to show spending, so the coins follow the tokens
+// the agents spend instead: six busy agents send up six times the coins of one.
 
 import { time } from './time.js';
 
@@ -17,6 +19,9 @@ const NEW_WINDOW_MS = 30 * 60_000; // a reset time this much later is a new wind
 const SAME_RESET_MS = 60_000;
 const RESET_DROP = 15; // percentage points; without reset times, a drop this large means a new window
 const COIN_LIFE = 3.5; // s
+const TOKENS_PER_COIN = 20_000; // weighted tokens; about one Opus turn over a large cached context
+const COIN_GAP = 0.12; // s between coins, so a big response trickles rather than clumps
+const MAX_OWED = 24; // coins; a flood of history (a server restart replaying transcripts) is capped
 
 // Coin positions on the heap, as fractions of its width and height; a coin shows once the heap reaches it.
 const HEAP_COINS = Array.from({ length: 18 }, (_, i) => ({ u: ((i * 0.618) % 1) * 0.8 + 0.1, v: (i + 0.5) / 18 }));
@@ -27,6 +32,8 @@ export class Chest {
     this.shown = 0; // remaining fraction as drawn, eased towards the real one
     this.celebrated = null; // reset time (ms) of the window whose refill has been shown
     this.coins = [];
+    this.owed = 0; // coins earned by spending and not yet released
+    this.nextCoin = 0; // s until the next may rise
     this.sparkles = [];
     this.burst = 0;
     this.angle = 0; // lid, as last drawn
@@ -39,7 +46,7 @@ export class Chest {
     this.y = floor + SINK; // bottom of the body
   }
 
-  /** A new usage report. Spending in the same window releases coins; a new window refills with a burst. */
+  /** A new usage report. A new window refills with a burst. */
   set(usage, bubbles) {
     const prev = this.window;
     this.usage = usage;
@@ -55,11 +62,13 @@ export class Chest {
       prev.resetsAt && w.resetsAt
         ? time(w.resetsAt) - time(prev.resetsAt) > NEW_WINDOW_MS
         : prev.usedPercent - w.usedPercent >= RESET_DROP;
-    if (newWindow) {
-      if (!prev.resetsAt || !sameReset(this.celebrated, time(prev.resetsAt))) this.celebrate(bubbles);
-    } else if (w.usedPercent > prev.usedPercent) {
-      this.release(Math.min(8, Math.ceil(w.usedPercent - prev.usedPercent)));
-    }
+    if (newWindow && (!prev.resetsAt || !sameReset(this.celebrated, time(prev.resetsAt)))) this.celebrate(bubbles);
+  }
+
+  /** Weighted tokens the agents spent since the last snapshot. */
+  spend(tokens) {
+    if (!this.window || tokens <= 0) return; // no chest, nothing to rise from
+    this.owed = Math.min(MAX_OWED, this.owed + tokens / TOKENS_PER_COIN);
   }
 
   celebrate(bubbles) {
@@ -98,6 +107,13 @@ export class Chest {
     const target = this.remaining() ?? 0;
     this.shown += (target - this.shown) * Math.min(1, dt * EASE);
     this.burst = Math.max(0, this.burst - dt * 0.6);
+
+    this.nextCoin -= dt;
+    if (this.owed >= 1 && this.nextCoin <= 0) {
+      this.owed--;
+      this.nextCoin = COIN_GAP;
+      this.release(1);
+    }
 
     for (const c of this.coins) {
       c.age += dt;

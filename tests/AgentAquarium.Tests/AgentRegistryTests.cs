@@ -122,6 +122,41 @@ public class AgentRegistryTests
     }
 
     [Fact]
+    public void A_response_split_over_lines_is_spent_once_with_its_final_usage()
+    {
+        _registry.Upsert(new AgentDescriptor("a", null, "a", "test", "s"));
+        _registry.Observe("a", new SpendObserved(Now, "msg_1", 1_000));
+        _registry.Observe("a", new SpendObserved(Now, "msg_1", 1_500)); // output grew while streaming
+        _registry.Observe("a", new SpendObserved(Now, "msg_1", 1_500));
+        _registry.Observe("a", new SpendObserved(Now, "msg_2", 400));
+        _registry.Observe("a", new SpendObserved(Now, null, 100));
+        _registry.Observe("a", new SpendObserved(Now, null, 100));
+
+        Assert.Equal(2_100, Assert.Single(_registry.Snapshot()).SpentTokens);
+    }
+
+    [Fact]
+    public void Replayed_spending_is_history_not_news()
+    {
+        _registry.Upsert(new AgentDescriptor("a", null, "a", "test", "s", LifetimeManaged: true));
+        _registry.Observe("a", new SpendObserved(Now - TimeSpan.FromMinutes(10), "msg_1", 50_000));
+        _registry.Observe("a", new SpendObserved(Now - TimeSpan.FromMinutes(10), "msg_1", 60_000));
+        _registry.Observe("a", new SpendObserved(Now, "msg_2", 700));
+
+        Assert.Equal(700, Assert.Single(_registry.Snapshot()).SpentTokens);
+    }
+
+    [Fact]
+    public void A_response_that_began_before_the_window_counts_only_its_growth()
+    {
+        _registry.Upsert(new AgentDescriptor("a", null, "a", "test", "s", LifetimeManaged: true));
+        _registry.Observe("a", new SpendObserved(Now - TimeSpan.FromMinutes(2), "msg_1", 30_000));
+        _registry.Observe("a", new SpendObserved(Now, "msg_1", 32_000));
+
+        Assert.Equal(2_000, Assert.Single(_registry.Snapshot()).SpentTokens);
+    }
+
+    [Fact]
     public void Lifetime_managed_agent_is_not_forgotten_when_quiet()
     {
         _registry.Upsert(new AgentDescriptor("a", null, "a", "test", "s", LifetimeManaged: true));

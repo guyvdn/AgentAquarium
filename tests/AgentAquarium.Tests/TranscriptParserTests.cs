@@ -26,6 +26,41 @@ public class TranscriptParserTests
     }
 
     [Fact]
+    public void Assistant_usage_is_spent_weighted_by_price()
+    {
+        var line = TranscriptParser.Parse($$$"""
+            {"type":"assistant",{{{Ts}}},"message":{"id":"msg_1","content":[],"stop_reason":"end_turn",
+             "usage":{"input_tokens":10,"cache_creation_input_tokens":300,"cache_read_input_tokens":10000,"output_tokens":100,
+                      "cache_creation":{"ephemeral_5m_input_tokens":100,"ephemeral_1h_input_tokens":200}} }}
+            """);
+
+        // 10 + 1.25 × 100 + 2 × 200 + 0.1 × 10 000 + 5 × 100
+        var spend = Assert.Single(line.Observations.OfType<SpendObserved>());
+        Assert.Equal(("msg_1", 2_035L), (spend.MessageId, spend.Tokens));
+    }
+
+    [Fact]
+    public void Cache_writes_without_a_split_count_as_five_minute_writes()
+    {
+        var line = TranscriptParser.Parse($$$"""
+            {"type":"assistant",{{{Ts}}},"message":{"content":[],"usage":{"cache_creation_input_tokens":400} } }
+            """);
+
+        Assert.Equal(500, Assert.Single(line.Observations.OfType<SpendObserved>()).Tokens);
+    }
+
+    [Fact]
+    public void A_compact_summary_with_zero_totals_spends_nothing()
+    {
+        var line = TranscriptParser.Parse($$$"""
+            {"type":"assistant",{{{Ts}}},"message":{"content":[],"usage":{"input_tokens":0,"cache_creation_input_tokens":0,
+             "cache_read_input_tokens":0,"output_tokens":0,"cache_creation":{"ephemeral_1h_input_tokens":236} } } }
+            """);
+
+        Assert.Empty(line.Observations.OfType<SpendObserved>());
+    }
+
+    [Fact]
     public void Assistant_end_turn_is_idle()
     {
         var line = TranscriptParser.Parse($$$"""

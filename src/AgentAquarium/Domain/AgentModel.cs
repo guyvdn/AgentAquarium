@@ -37,6 +37,13 @@ public abstract record AgentObservation(DateTimeOffset At);
 /// <summary>Current context size, in tokens.</summary>
 public sealed record ContextObserved(DateTimeOffset At, long Tokens) : AgentObservation(At);
 
+/// <summary>
+/// Tokens one model response cost, weighted the way API pricing weighs them, so a cache read
+/// counts for less than fresh input or output. Not an exact cost, but what the limit tracks.
+/// </summary>
+/// <param name="MessageId">A response spread over several transcript lines repeats its usage; only the latest per id counts.</param>
+public sealed record SpendObserved(DateTimeOffset At, string? MessageId, long Tokens) : AgentObservation(At);
+
 public sealed record ToolCallObserved(DateTimeOffset At, string ToolName) : AgentObservation(At);
 
 public sealed record ToolErrorObserved(DateTimeOffset At) : AgentObservation(At);
@@ -57,6 +64,7 @@ public interface IAgentSink
 }
 
 /// <summary>What the browser receives, a few times per second.</summary>
+/// <param name="SpentTokens">Weighted tokens spent while the tank watched, history left out; only the growth means anything.</param>
 /// <param name="StatusSince">When the agent entered its current status; how long it has been waiting, for Idle and Waiting.</param>
 public sealed record AgentSnapshot(
     string Id,
@@ -67,6 +75,7 @@ public sealed record AgentSnapshot(
     string? Detail,
     int Depth,
     long ContextTokens,
+    long SpentTokens,
     AgentStatus Status,
     string? WaitingFor,
     DateTimeOffset StatusSince,

@@ -59,6 +59,8 @@ public sealed class DemoSource(IAgentSink sink, IUsageSink usage, IOptions<DemoO
                     sink.Observe(agent.Id, new ToolCallObserved(now, Tools[_random.Next(Tools.Length)]));
                     agent.Tokens += _random.Next(800, 6000);
                     sink.Observe(agent.Id, new ContextObserved(now, agent.Tokens));
+                    // Roughly what a response over this much context costs: cached reads plus a little output.
+                    sink.Observe(agent.Id, new SpendObserved(now, null, agent.Tokens / 10 + _random.Next(2_000, 8_000)));
                 }
                 if (_random.NextDouble() < 0.01)
                     sink.Observe(agent.Id, new ToolErrorObserved(now));

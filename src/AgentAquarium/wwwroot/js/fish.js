@@ -71,6 +71,7 @@ export class Fish {
       toolCalls: Math.max(0, agent.toolCalls - prev.toolCalls),
       errors: Math.max(0, agent.errors - prev.errors),
       compacted: agent.compactions > prev.compactions,
+      spent: Math.max(0, agent.spentTokens - prev.spentTokens),
     };
   }
 
