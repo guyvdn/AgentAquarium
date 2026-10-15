@@ -102,7 +102,8 @@ canvas#tank {
   cursor: default;
 }
 
-.panel li:hover {
+.panel li:hover,
+.panel li.hovered {
   background: rgb(150 210 255 / 10%);
 }
 

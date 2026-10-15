@@ -228,9 +228,15 @@ function renderPanel(agents) {
   schoolsEl.innerHTML = rows.join('') || '<li class="meta">—</li>';
 }
 
+/** Mirrors a hovered fish onto its row, the reverse of hovering a row. */
+function markHoveredRow(id) {
+  for (const li of schoolsEl.children) li.classList.toggle('hovered', li.dataset.id === id);
+}
+
 function row(a, depth) {
   const detail = a.detail ? `<small>${escapeHtml(a.detail)}</small>` : '';
-  return `<li class="${depth ? 'child' : ''}" style="--depth:${depth}" data-id="${escapeHtml(a.id)}">
+  const classes = [depth && 'child', a.id === hoverId && 'hovered'].filter(Boolean).join(' ');
+  return `<li class="${classes}" style="--depth:${depth}" data-id="${escapeHtml(a.id)}">
     <span class="swatch" style="background:${fishColor(a.sessionId, a.depth)}"></span>
     <span class="name">${escapeHtml(a.label)}${detail}</span>
     <span class="meta ${STATUS_CLASS.get(a.status) ?? ''}">${tokens(a.contextTokens)}<br>${escapeHtml(statusText(a.status))}</span>
@@ -264,7 +270,8 @@ function updateTooltip() {
   const onDiver = pointer && diver.hit(...pointer);
   const fish = pointer && !onDiver && fishAt(pointer);
   const other = onDiver ? diver : !fish && pointer && chest.hit(...pointer) ? chest : null;
-  hoverId = fish ? fish.id : null;
+  const id = fish ? fish.id : null;
+  if (id !== hoverId) markHoveredRow((hoverId = id));
   tooltipEl.hidden = !fish && !other;
   canvas.style.cursor = tooltipEl.hidden ? 'default' : 'pointer';
   if (tooltipEl.hidden) return;
