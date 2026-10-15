@@ -38,6 +38,7 @@ public sealed class ClaudeCodeOptions
 public sealed partial class ClaudeCodeSource(
     IAgentSink sink,
     IOptions<ClaudeCodeOptions> options,
+    PermissionRequests permissionRequests,
     TimeProvider clock,
     ILogger<ClaudeCodeSource> logger) : BackgroundService
 {
@@ -45,11 +46,20 @@ public sealed partial class ClaudeCodeSource(
 
     private const int LiveMissesBeforeEnd = 3;
 
+    /// <summary>
+    /// How long a reported permission prompt may wait for its tool call to be read from the transcript.
+    /// The call is written before the prompt, so this only covers the poll interval; past it, it was answered.
+    /// </summary>
+    private static readonly TimeSpan PermissionMatchWindow = TimeSpan.FromSeconds(10);
+
     private readonly ClaudeCodeOptions _options = options.Value;
     private readonly Dictionary<string, TrackedFile> _files = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>tool_use id → the agent that issued it; how a subagent finds its parent.</summary>
     private readonly Dictionary<string, string> _toolUseOwner = [];
+
+    /// <summary>Permission prompts from the hook whose tool call has not been read yet.</summary>
+    private readonly List<PermissionRequest> _permissionRequests = [];
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -116,6 +126,49 @@ public sealed partial class ClaudeCodeSource(
         // session; now that every file has been read, its real parent may be known.
         foreach (var file in _files.Values.Where(f => f.IsSubagent && !f.ParentResolved && f.Tail.Offset > 0))
             sink.Upsert(Describe(file));
+
+        _permissionRequests.AddRange(permissionRequests.Drain());
+        _permissionRequests.RemoveAll(MarkPermissionWait);
+    }
+
+    /// <summary>
+    /// Turns a permission prompt into a wait on the tool call it is about, in the agent that asked. From
+    /// there the wait ends like any other, when the call's result or the end of the turn is read: no hook
+    /// fires when a prompt is approved, so an approved call stays waiting until it has run. The CLI's
+    /// registry does see approvals, so CLI sessions are left to it. False to retry next poll.
+    /// </summary>
+    private bool MarkPermissionWait(PermissionRequest request)
+    {
+        if (_files.Values.FirstOrDefault(f => f.AgentId == request.SessionId)?.Live?.Entrypoint == "cli")
+            return true;
+
+        // A subagent's request carries its agent_id; without one, the main agent asked.
+        var agentId = request.AgentId is { Length: > 0 } a ? $"{request.SessionId}/{a}" : request.SessionId;
+        if (_files.Values.FirstOrDefault(f => f.AgentId == agentId) is { } file
+            && PickToolCall(file.OpenToolUses.Where(u => !file.Waits.ContainsKey(u.Key)), request) is { } id)
+        {
+            var reason = $"permission for {request.ToolName}";
+            file.Waits[id] = reason;
+            sink.Observe(file.AgentId, new StatusObserved(request.At, AgentStatus.Waiting, reason));
+            return true;
+        }
+        return clock.GetUtcNow() - request.At > PermissionMatchWindow;
+    }
+
+    /// <summary>
+    /// The open call a permission prompt is about: of that tool, made before the prompt, with the same
+    /// arguments (parallel calls of one tool), else the only one. When it is not clear, none: a missed
+    /// prompt costs less than marking a running call as waiting.
+    /// </summary>
+    internal static string? PickToolCall(IEnumerable<KeyValuePair<string, OpenToolUse>> open, PermissionRequest request)
+    {
+        var candidates = open
+            .Where(u => u.Value.Name == request.ToolName && u.Value.At <= request.At)
+            .ToList();
+        var exact = request.Input is { } input
+            ? candidates.Find(u => u.Value.Input.ValueKind != JsonValueKind.Undefined && JsonElement.DeepEquals(u.Value.Input, input))
+            : default;
+        return exact.Key ?? (candidates.Count == 1 ? candidates[0].Key : null);
     }
 
     private void PollRoot(string root, IReadOnlyDictionary<string, LiveSession>? live, DateTimeOffset since)
@@ -178,7 +231,8 @@ public sealed partial class ClaudeCodeSource(
 
     /// <summary>
     /// The registry's status is authoritative and catches what transcripts miss (an interrupted turn,
-    /// a permission prompt in the CLI), except for a question still open in the transcript.
+    /// a permission prompt in the CLI), except for a wait still open: a question in the transcript, or a
+    /// permission prompt reported by the hook.
     /// </summary>
     private void ReportLiveStatus(TrackedFile file)
     {
@@ -231,8 +285,16 @@ public sealed partial class ClaudeCodeSource(
             file.GitBranch = line.GitBranch ?? file.GitBranch;
             file.Title = line.Title ?? file.Title;
             file.Entrypoint = line.Entrypoint ?? file.Entrypoint;
-            foreach (var id in line.ToolUseIds)
-                _toolUseOwner[id] = file.AgentId;
+            foreach (var use in line.ToolUses)
+            {
+                _toolUseOwner[use.Id] = file.AgentId;
+                file.OpenToolUses[use.Id] = new OpenToolUse(use.Name, line.At ?? clock.GetUtcNow(), use.Input);
+            }
+            foreach (var id in line.ToolResultIds)
+                file.OpenToolUses.Remove(id);
+            // An interrupted turn can leave calls without a result; the next prompt closes them.
+            if (EndsTurn(line) || line.IsPrompt)
+                file.OpenToolUses.Clear();
 
             TrackWaits(file.Waits, line, observations);
         }
@@ -255,8 +317,8 @@ public sealed partial class ClaudeCodeSource(
     /// </summary>
     internal static void TrackWaits(Dictionary<string, string> waits, TranscriptLine line, List<AgentObservation> observations)
     {
-        // The turn ended, answered or not (a result we never saw).
-        if (line.Observations.OfType<StatusObserved>().Any(s => s.Status is AgentStatus.Idle or AgentStatus.Done))
+        // The turn ended or a new one began, answered or not (a result we never saw).
+        if (EndsTurn(line) || line.IsPrompt)
             waits.Clear();
         foreach (var wait in line.Waits)
             waits[wait.ToolUseId] = wait.Reason;
@@ -274,6 +336,9 @@ public sealed partial class ClaudeCodeSource(
         if (answered && waits.Count == 0 && line.At is { } at)
             observations.Add(new StatusObserved(at, AgentStatus.Working));
     }
+
+    private static bool EndsTurn(TranscriptLine line) =>
+        line.Observations.OfType<StatusObserved>().Any(s => s.Status is AgentStatus.Idle or AgentStatus.Done);
 
     private AgentDescriptor Describe(TrackedFile file)
     {
@@ -366,7 +431,13 @@ public sealed partial class ClaudeCodeSource(
 
         /// <summary>Open questions to the user: tool_use id → what for.</summary>
         public Dictionary<string, string> Waits { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>Tool calls without a result yet, in this turn, by tool_use id.</summary>
+        public Dictionary<string, OpenToolUse> OpenToolUses { get; } = new(StringComparer.Ordinal);
     }
+
+    /// <summary>A tool call without a result yet: what, when, and with which arguments.</summary>
+    internal sealed record OpenToolUse(string Name, DateTimeOffset At, JsonElement Input);
 
     private sealed record SubagentMeta(string? AgentType, string? Description, string? ToolUseId, int? SpawnDepth)
     {

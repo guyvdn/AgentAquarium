@@ -7,7 +7,7 @@ namespace AgentAquarium.Sources.ClaudeCode;
 /// <summary>What one transcript line tells us, already in source-neutral terms.</summary>
 public sealed record TranscriptLine(
     IReadOnlyList<AgentObservation> Observations,
-    IReadOnlyList<string> ToolUseIds,
+    IReadOnlyList<ToolUse> ToolUses,
     string? Cwd = null,
     string? GitBranch = null,
     string? Title = null,
@@ -22,7 +22,13 @@ public sealed record TranscriptLine(
 
     /// <summary>The tool calls this line carries results for.</summary>
     public IReadOnlyList<string> ToolResultIds { get; init; } = [];
+
+    /// <summary>A prompt from the user: whatever the turn before left open is over.</summary>
+    public bool IsPrompt { get; init; }
 }
+
+/// <summary>A tool call the agent made, with its arguments.</summary>
+public sealed record ToolUse(string Id, string Name, JsonElement Input);
 
 /// <summary>A tool call waiting on the user, and what for.</summary>
 public sealed record UserWait(string ToolUseId, string Reason);
@@ -73,17 +79,20 @@ public static class TranscriptParser
             return TranscriptLine.Empty;
 
         var observations = new List<AgentObservation>();
-        var toolUseIds = new List<string>();
+        var toolUses = new List<ToolUse>();
         var waits = new List<UserWait>();
         var toolResultIds = new List<string>();
+        var isPrompt = false;
 
         switch (type)
         {
             case "assistant" when root.TryGetProperty("message", out var message):
-                ParseAssistant(message, at, observations, toolUseIds, waits);
+                ParseAssistant(message, at, observations, toolUses, waits);
                 break;
             case "user" when root.TryGetProperty("message", out var message):
-                ParseUser(message, at, observations, toolResultIds);
+                // Not text Claude Code adds itself mid-turn (a skill's body, a command caveat), nor text beside a result.
+                isPrompt = ParseUser(message, at, observations, toolResultIds) && toolResultIds.Count == 0
+                           && !(root.TryGetProperty("isMeta", out var isMeta) && isMeta.ValueKind == JsonValueKind.True);
                 break;
             case "system" when Str(root, "subtype") == "compact_boundary":
                 var meta = root.TryGetProperty("compactMetadata", out var m) ? m : default;
@@ -91,17 +100,18 @@ public static class TranscriptParser
                 break;
         }
 
-        return new TranscriptLine(observations, toolUseIds, Str(root, "cwd"), Str(root, "gitBranch"),
+        return new TranscriptLine(observations, toolUses, Str(root, "cwd"), Str(root, "gitBranch"),
             Entrypoint: Str(root, "entrypoint"))
         {
             At = at,
             Waits = waits,
             ToolResultIds = toolResultIds,
+            IsPrompt = isPrompt,
         };
     }
 
     private static void ParseAssistant(JsonElement message, DateTimeOffset at,
-        List<AgentObservation> observations, List<string> toolUseIds, List<UserWait> waits)
+        List<AgentObservation> observations, List<ToolUse> toolUses, List<UserWait> waits)
     {
         if (message.TryGetProperty("usage", out var usage))
         {
@@ -123,7 +133,7 @@ public static class TranscriptParser
             handedBack |= name == HandbackTool;
             if (Str(block, "id") is not { } id)
                 continue;
-            toolUseIds.Add(id);
+            toolUses.Add(new ToolUse(id, name, block.TryGetProperty("input", out var input) ? input.Clone() : default));
             if (UserTools.TryGetValue(name, out var reason))
                 waits.Add(new UserWait(id, reason));
         }
@@ -136,7 +146,8 @@ public static class TranscriptParser
             : new StatusObserved(at, working ? AgentStatus.Working : AgentStatus.Idle));
     }
 
-    private static void ParseUser(JsonElement message, DateTimeOffset at, List<AgentObservation> observations,
+    /// <returns>Whether the line carries text or an image, not only tool results.</returns>
+    private static bool ParseUser(JsonElement message, DateTimeOffset at, List<AgentObservation> observations,
         List<string> toolResultIds)
     {
         // A plain prompt starts work. A line of only tool results changes nothing: the tool_use
@@ -169,6 +180,7 @@ public static class TranscriptParser
 
         if (prompt)
             observations.Add(new StatusObserved(at, interrupted ? AgentStatus.Idle : AgentStatus.Working));
+        return prompt;
     }
 
     [SuppressMessage("Performance", "CA1859", Justification = "Non-array content yields an empty sequence, which ArrayEnumerator cannot express.")]

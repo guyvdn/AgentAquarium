@@ -17,7 +17,7 @@ A live aquarium of your AI coding agents. Each session is a school of fish: the 
 
 The treasure chest on the sand is your plan's **5-hour limit**: the gold is what is left, the lid opens as far as there is gold to show, and spending lets coins float away. It glows amber below 30% and pulses red below 10%; when the window resets it refills with a burst. Grey means the numbers are old (over 30 minutes, or the window has reset since). Hover it for the weekly limit too.
 
-The diver is **you**. It swims to whichever agent has waited on you longest, agents blocked mid-turn before ones that merely finished, and climbs back up the boat's ladder when nobody waits. The badge over its head counts who is waiting, amber when one of them is blocked; hover it for the list with how long each has waited. "Blocked" comes from Claude Code's live-session registry (`status: "waiting"`, interactive CLI only) and, for SDK hosts such as T3 Code, from an `AskUserQuestion` or `ExitPlanMode` still unanswered in the transcript. A permission prompt in an SDK host leaves no trace in either, so such a session shows as working until it stalls.
+The diver is **you**. It swims to whichever agent has waited on you longest, agents blocked mid-turn before ones that merely finished, and climbs back up the boat's ladder when nobody waits. The badge over its head counts who is waiting, amber when one of them is blocked; hover it for the list with how long each has waited. "Blocked" comes from Claude Code's live-session registry (`status: "waiting"`, interactive CLI only) and, for SDK hosts such as T3 Code, from an `AskUserQuestion` or `ExitPlanMode` still unanswered in the transcript. A permission prompt in an SDK host leaves no trace in either: install the plugin below to see those too. Without it, such a session shows as working until it stalls.
 
 ## Run
 
@@ -26,7 +26,21 @@ dotnet run --project src/AgentAquarium --launch-profile live   # your real Claud
 dotnet run --project src/AgentAquarium --launch-profile demo   # synthetic agents, for working on the visuals
 ```
 
-Open http://localhost:5180. Settings are in `src/AgentAquarium/appsettings.json`:
+Open http://localhost:5180.
+
+### Plugin: permission prompts in SDK hosts
+
+In Claude Code, run once:
+
+```
+/plugin install agent-aquarium --marketplace guyvdn/AgentAquarium
+```
+
+It adds a `PermissionRequest` hook (`plugin/hooks/hooks.json`) that posts each permission prompt to `http://localhost:5180/api/hooks/permission-request`. The aquarium matches it to the tool call still open in the transcript, and the session shows as blocked until that call's result comes in. No hook fires when a prompt is approved, so an approved long-running command stays amber until it finishes. CLI sessions ignore the hook: the live-session registry already reports their prompts, approvals included. The hook never answers the prompt, and when the aquarium is not running the post fails quietly. Running on another port? Change the URL in the hook. Needs Claude Code 2.1.275 or later.
+
+### Settings
+
+Settings are in `src/AgentAquarium/appsettings.json`:
 
 - `Sources:ClaudeCode:ProjectRoots`: transcript folders. The default is `~/.claude/projects`. Add another profile's `projects` folder to watch it too.
 - `Sources:ClaudeCode:LookBack`: fallback only. A session is shown while its process runs, according to Claude Code's live-session registry (`<config>/sessions/<pid>.json`, checked against the process start time because pids get reused). If that registry is missing (older Claude Code), sessions whose transcript changed within this window are shown instead.

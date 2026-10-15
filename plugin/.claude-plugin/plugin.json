@@ -1,0 +1,10 @@
+{
+  "name": "agent-aquarium",
+  "displayName": "Agent Aquarium",
+  "version": "1.0.0",
+  "description": "Tells a running Agent Aquarium (http://localhost:5180) when a session waits on a permission prompt, so the diver goes there. Does nothing when the aquarium is not running.",
+  "author": { "name": "Guy Van den Nieuwenhof", "url": "https://github.com/guyvdn" },
+  "homepage": "https://github.com/guyvdn/AgentAquarium",
+  "repository": "https://github.com/guyvdn/AgentAquarium",
+  "license": "MIT"
+}

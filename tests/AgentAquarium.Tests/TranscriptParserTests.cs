@@ -20,7 +20,7 @@ public class TranscriptParserTests
         Assert.Equal(38115, Assert.Single(line.Observations.OfType<ContextObserved>()).Tokens);
         Assert.Equal("Read", Assert.Single(line.Observations.OfType<ToolCallObserved>()).ToolName);
         Assert.Equal(AgentStatus.Working, Assert.Single(line.Observations.OfType<StatusObserved>()).Status);
-        Assert.Equal(["toolu_1"], line.ToolUseIds);
+        Assert.Equal(("toolu_1", "Read"), Assert.Single(line.ToolUses) is var use ? (use.Id, use.Name) : default);
         Assert.Equal("D:\\repo", line.Cwd);
         Assert.Equal("main", line.GitBranch);
     }
@@ -44,6 +44,7 @@ public class TranscriptParserTests
 
         Assert.Single(line.Observations.OfType<ToolErrorObserved>());
         Assert.Empty(line.Observations.OfType<StatusObserved>());
+        Assert.False(line.IsPrompt);
     }
 
     [Fact]
@@ -113,6 +114,17 @@ public class TranscriptParserTests
             """);
 
         Assert.Equal(AgentStatus.Working, Assert.Single(line.Observations.OfType<StatusObserved>()).Status);
+        Assert.True(line.IsPrompt);
+    }
+
+    [Fact]
+    public void Text_claude_code_adds_mid_turn_is_not_a_prompt()
+    {
+        var line = TranscriptParser.Parse($$$"""
+            {"type":"user","isMeta":true,{{{Ts}}},"message":{"role":"user","content":[{"type":"text","text":"Base directory for this skill: ..."}]}}
+            """);
+
+        Assert.False(line.IsPrompt);
     }
 
     [Fact]

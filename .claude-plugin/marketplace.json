@@ -1,0 +1,12 @@
+{
+  "name": "agent-aquarium",
+  "description": "Hooks that let Agent Aquarium see what Claude Code's transcripts do not show",
+  "owner": { "name": "Guy Van den Nieuwenhof", "url": "https://github.com/guyvdn" },
+  "plugins": [
+    {
+      "name": "agent-aquarium",
+      "source": "./plugin",
+      "description": "Tells a running Agent Aquarium when a session waits on a permission prompt"
+    }
+  ]
+}

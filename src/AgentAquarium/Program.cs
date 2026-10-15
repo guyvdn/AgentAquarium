@@ -18,6 +18,7 @@ builder.Services.AddSingleton<IUsageSink>(sp => sp.GetRequiredService<UsageBoard
 
 // Sources. Each one translates its own world into IAgentSink calls; add new ones here.
 builder.Services.Configure<ClaudeCodeOptions>(builder.Configuration.GetSection("Sources:ClaudeCode"));
+builder.Services.AddSingleton<PermissionRequests>();
 builder.Services.AddHostedService<ClaudeCodeSource>();
 builder.Services.AddHostedService<ClaudeUsageSource>();
 builder.Services.Configure<DemoOptions>(builder.Configuration.GetSection("Sources:Demo"));
@@ -36,6 +37,14 @@ app.UseStaticFiles(new StaticFileOptions
 app.MapGet("/api/agents", (AgentRegistry registry) => registry.Snapshot());
 
 app.MapGet("/api/usage", (UsageBoard usage) => usage.Current is { } current ? Results.Ok(current) : Results.NoContent());
+
+// Claude Code's PermissionRequest hook, from the plugin in plugin/. An empty 2xx leaves the decision to the user.
+app.MapPost("/api/hooks/permission-request", (PermissionRequestHook hook, PermissionRequests requests, TimeProvider clock) =>
+{
+    if (hook is { SessionId.Length: > 0, ToolName.Length: > 0 })
+        requests.Add(new PermissionRequest(hook.SessionId, hook.ToolName, hook.ToolInput, hook.AgentId, clock.GetUtcNow()));
+    return Results.NoContent();
+});
 
 app.MapGet("/api/agents/stream", (AgentRegistry registry, UsageBoard usage, CancellationToken ct) =>
     TypedResults.ServerSentEvents(Stream(registry, usage, ct)));
