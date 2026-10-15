@@ -176,7 +176,10 @@ public sealed partial class ClaudeCodeSource(
         LogSessionEnded(logger, main.SessionId);
     }
 
-    /// <summary>The registry's busy/idle is authoritative and catches what transcripts miss (e.g. an interrupted turn).</summary>
+    /// <summary>
+    /// The registry's status is authoritative and catches what transcripts miss (an interrupted turn,
+    /// a permission prompt in the CLI), except for a question still open in the transcript.
+    /// </summary>
     private void ReportLiveStatus(TrackedFile file)
     {
         // Only once the agent exists in the tank; before that the observation would be dropped.
@@ -185,15 +188,19 @@ public sealed partial class ClaudeCodeSource(
 
         AgentStatus? mapped = status switch
         {
+            // An SDK host asks its questions itself, so the registry cannot see them; the transcript can.
+            _ when file.Waits.Count > 0 => AgentStatus.Waiting,
             "busy" => AgentStatus.Working,
             "idle" => AgentStatus.Idle,
+            "waiting" => AgentStatus.Waiting,
             _ => null,
         };
         if (mapped is null)
             return;
 
         var at = file.Live.StatusUpdatedAt is { } ms ? DateTimeOffset.FromUnixTimeMilliseconds(ms) : clock.GetUtcNow();
-        sink.Observe(file.AgentId, new StatusObserved(at, mapped.Value));
+        var reason = file.Live.WaitingFor ?? file.Waits.Values.FirstOrDefault();
+        sink.Observe(file.AgentId, new StatusObserved(at, mapped.Value, reason));
         file.ReportedLiveStatus = status;
     }
 
@@ -216,9 +223,9 @@ public sealed partial class ClaudeCodeSource(
 
     private void Apply(TrackedFile file, IReadOnlyList<string> lines)
     {
-        var parsed = lines.Select(TranscriptParser.Parse).ToList();
+        var observations = new List<AgentObservation>();
 
-        foreach (var line in parsed)
+        foreach (var line in lines.Select(TranscriptParser.Parse))
         {
             file.Cwd = line.Cwd ?? file.Cwd;
             file.GitBranch = line.GitBranch ?? file.GitBranch;
@@ -226,17 +233,46 @@ public sealed partial class ClaudeCodeSource(
             file.Entrypoint = line.Entrypoint ?? file.Entrypoint;
             foreach (var id in line.ToolUseIds)
                 _toolUseOwner[id] = file.AgentId;
+
+            TrackWaits(file.Waits, line, observations);
         }
 
         // Upsert before observing: the registry ignores observations for unknown agents,
         // and may have forgotten this one if it went quiet and has now woken up.
         sink.Upsert(Describe(file));
 
-        foreach (var observation in parsed.SelectMany(l => l.Observations))
+        foreach (var observation in observations)
             sink.Observe(file.AgentId, file.IsSubagent ? EndTurnMeansDone(observation) : observation);
 
         // Transcript lines may have set a status; re-apply the registry's, which wins.
         file.ReportedLiveStatus = null;
+    }
+
+    /// <summary>
+    /// Adds a line's observations, keeping track of the questions the agent has asked and not yet
+    /// had answered. The answer is a plain tool result, which reports no status of its own, so the
+    /// turn resuming is reported here.
+    /// </summary>
+    internal static void TrackWaits(Dictionary<string, string> waits, TranscriptLine line, List<AgentObservation> observations)
+    {
+        // The turn ended, answered or not (a result we never saw).
+        if (line.Observations.OfType<StatusObserved>().Any(s => s.Status is AgentStatus.Idle or AgentStatus.Done))
+            waits.Clear();
+        foreach (var wait in line.Waits)
+            waits[wait.ToolUseId] = wait.Reason;
+
+        var answered = false;
+        foreach (var id in line.ToolResultIds)
+            answered |= waits.Remove(id);
+
+        // A tool called alongside the question (a later line of the same message) does not answer it.
+        foreach (var observation in line.Observations)
+            observations.Add(observation is StatusObserved { Status: AgentStatus.Working } && waits.Count > 0
+                ? new StatusObserved(observation.At, AgentStatus.Waiting, waits.Values.First())
+                : observation);
+
+        if (answered && waits.Count == 0 && line.At is { } at)
+            observations.Add(new StatusObserved(at, AgentStatus.Working));
     }
 
     private AgentDescriptor Describe(TrackedFile file)
@@ -327,6 +363,9 @@ public sealed partial class ClaudeCodeSource(
         public int LiveMisses { get; set; }
 
         public string? ReportedLiveStatus { get; set; }
+
+        /// <summary>Open questions to the user: tool_use id → what for.</summary>
+        public Dictionary<string, string> Waits { get; } = new(StringComparer.Ordinal);
     }
 
     private sealed record SubagentMeta(string? AgentType, string? Description, string? ToolUseId, int? SpawnDepth)

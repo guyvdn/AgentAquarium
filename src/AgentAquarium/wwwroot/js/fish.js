@@ -217,7 +217,7 @@ export class Fish {
     ctx.restore();
   }
 
-  /** Parents glow; the glow pulses harder the busier they are. */
+  /** Parents glow; the glow pulses harder the busier they are, and amber while blocked on you. */
   applyGlow(ctx, highlighted) {
     if (this.flash > 0) {
       ctx.shadowColor = `rgba(255, 70, 90, ${this.flash})`;
@@ -225,6 +225,10 @@ export class Fish {
     } else if (highlighted) {
       ctx.shadowColor = 'white';
       ctx.shadowBlur = 22;
+    } else if (this.agent.status === 'Waiting') {
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 280);
+      ctx.shadowColor = `rgba(255, 179, 71, ${0.55 + pulse * 0.45})`;
+      ctx.shadowBlur = 12 + pulse * 16;
     } else if (this.isRoot) {
       ctx.shadowColor = this.colors.glow;
       ctx.shadowBlur = 8 + this.activity * 18;

@@ -10,6 +10,8 @@ public enum AgentStatus
     Working,
     /// <summary>Turn ended; waiting for the user.</summary>
     Idle,
+    /// <summary>Blocked mid-turn on the user: a permission prompt, a question, a plan to approve.</summary>
+    Waiting,
     /// <summary>Subagent finished its task; it will leave the tank.</summary>
     Done,
 }
@@ -41,7 +43,8 @@ public sealed record ToolErrorObserved(DateTimeOffset At) : AgentObservation(At)
 
 public sealed record CompactionObserved(DateTimeOffset At, long PreTokens, long PostTokens) : AgentObservation(At);
 
-public sealed record StatusObserved(DateTimeOffset At, AgentStatus Status) : AgentObservation(At);
+/// <param name="WaitingFor">For <see cref="AgentStatus.Waiting"/>: what the agent needs from the user, when known.</param>
+public sealed record StatusObserved(DateTimeOffset At, AgentStatus Status, string? WaitingFor = null) : AgentObservation(At);
 
 /// <summary>Where sources report to. Implemented by the tank's registry.</summary>
 public interface IAgentSink
@@ -54,6 +57,7 @@ public interface IAgentSink
 }
 
 /// <summary>What the browser receives, a few times per second.</summary>
+/// <param name="StatusSince">When the agent entered its current status; how long it has been waiting, for Idle and Waiting.</param>
 public sealed record AgentSnapshot(
     string Id,
     string? ParentId,
@@ -64,6 +68,8 @@ public sealed record AgentSnapshot(
     int Depth,
     long ContextTokens,
     AgentStatus Status,
+    string? WaitingFor,
+    DateTimeOffset StatusSince,
     double Activity,
     int ToolCalls,
     int Errors,

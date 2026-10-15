@@ -47,6 +47,65 @@ public class TranscriptParserTests
     }
 
     [Fact]
+    public void A_question_to_the_user_is_waiting_until_answered()
+    {
+        var waits = new Dictionary<string, string>(StringComparer.Ordinal);
+        var observations = new List<AgentObservation>();
+
+        var asked = TranscriptParser.Parse($$$"""
+            {"type":"assistant",{{{Ts}}},"message":{"content":[{"type":"tool_use","id":"toolu_q","name":"AskUserQuestion","input":{}}],"stop_reason":"tool_use"}}
+            """);
+        ClaudeCodeSource.TrackWaits(waits, asked, observations);
+
+        var status = Assert.Single(observations.OfType<StatusObserved>());
+        Assert.Equal((AgentStatus.Waiting, "a question"), (status.Status, status.WaitingFor));
+        Assert.Equal("toolu_q", Assert.Single(waits).Key);
+        observations.Clear();
+
+        var answered = TranscriptParser.Parse($$$"""
+            {"type":"user",{{{Ts}}},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_q","content":"Yes"}]}}
+            """);
+        ClaudeCodeSource.TrackWaits(waits, answered, observations);
+
+        Assert.Empty(waits);
+        Assert.Equal(AgentStatus.Working, Assert.Single(observations.OfType<StatusObserved>()).Status);
+    }
+
+    [Fact]
+    public void A_tool_called_alongside_a_question_does_not_answer_it()
+    {
+        var waits = new Dictionary<string, string>(StringComparer.Ordinal);
+        var observations = new List<AgentObservation>();
+
+        string[] lines =
+        [
+            $$$"""{"type":"assistant",{{{Ts}}},"message":{"content":[{"type":"tool_use","id":"toolu_q","name":"AskUserQuestion","input":{}}],"stop_reason":null}}""",
+            $$$"""{"type":"assistant",{{{Ts}}},"message":{"content":[{"type":"tool_use","id":"toolu_r","name":"Read","input":{}}],"stop_reason":"tool_use"}}""",
+            $$$"""{"type":"user",{{{Ts}}},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_r","content":"..."}]}}""",
+        ];
+        foreach (var json in lines)
+            ClaudeCodeSource.TrackWaits(waits, TranscriptParser.Parse(json), observations);
+
+        Assert.All(observations.OfType<StatusObserved>(), s => Assert.Equal(AgentStatus.Waiting, s.Status));
+        Assert.Equal("toolu_q", Assert.Single(waits).Key);
+    }
+
+    [Fact]
+    public void A_turn_that_moves_on_drops_an_unanswered_question()
+    {
+        var waits = new Dictionary<string, string>(StringComparer.Ordinal) { ["toolu_q"] = "plan approval" };
+        var observations = new List<AgentObservation>();
+
+        var next = TranscriptParser.Parse($$$"""
+            {"type":"assistant",{{{Ts}}},"message":{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn"}}
+            """);
+        ClaudeCodeSource.TrackWaits(waits, next, observations);
+
+        Assert.Empty(waits);
+        Assert.Equal(AgentStatus.Idle, Assert.Single(observations.OfType<StatusObserved>()).Status);
+    }
+
+    [Fact]
     public void Prompt_starts_work()
     {
         var line = TranscriptParser.Parse($$$"""

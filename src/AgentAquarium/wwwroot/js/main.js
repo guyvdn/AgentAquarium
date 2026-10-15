@@ -1,6 +1,7 @@
 import { Fish } from './fish.js';
 import { Scenery, Bubbles } from './scenery.js';
 import { Chest } from './chest.js';
+import { Diver } from './diver.js';
 import { fishColor } from './colors.js';
 
 const STREAM_URL = '/api/agents/stream';
@@ -20,6 +21,7 @@ const connectionEl = document.getElementById('connection');
 const scenery = new Scenery();
 const bubbles = new Bubbles();
 const chest = new Chest();
+const diver = new Diver();
 const world = { fish: new Map(), width: 0, height: 0, top: 0, floor: 0 };
 
 let firstSnapshot = true;
@@ -27,7 +29,7 @@ let highlightId = null;
 let hoverId = null;
 let pointer = null;
 let tooltipFor = null; // the agent snapshot the tooltip was last rendered for
-let chestTooltip = ''; // the chest's last tooltip markup
+let markupTooltip = ''; // the chest's or diver's last tooltip markup
 
 // --- layout -----------------------------------------------------------------
 
@@ -42,6 +44,7 @@ function resize() {
   world.top = SURFACE;
   world.floor = scenery.floor;
   chest.place(world.width, world.floor);
+  diver.place(world.width, world.top);
 }
 window.addEventListener('resize', resize);
 resize();
@@ -166,6 +169,7 @@ function simulate(dt, t) {
     }
 
   chest.step(dt, bubbles);
+  diver.step(dt, t, world, bubbles);
   scenery.step(dt, t);
   scenery.emitAmbient(t, bubbles);
   bubbles.step(dt);
@@ -174,9 +178,11 @@ function simulate(dt, t) {
 function render(t) {
   scenery.drawBack(ctx, t);
   chest.draw(ctx, t);
+  diver.drawBoat(ctx);
   // Descendants first, so parents swim on top of their school.
   const ordered = [...world.fish.values()].sort((a, b) => b.agent.depth - a.agent.depth || a.len - b.len);
   for (const fish of ordered) fish.draw(ctx, fish.id === highlightId || fish.id === hoverId);
+  diver.draw(ctx);
   bubbles.draw(ctx);
   chest.drawFront(ctx);
   scenery.drawFront(ctx);
@@ -227,7 +233,7 @@ function row(a, depth) {
   return `<li class="${depth ? 'child' : ''}" style="--depth:${depth}" data-id="${escapeHtml(a.id)}">
     <span class="swatch" style="background:${fishColor(a.sessionId, a.depth)}"></span>
     <span class="name">${escapeHtml(a.label)}${detail}</span>
-    <span class="meta ${a.status === 'Working' ? 'working' : ''}">${tokens(a.contextTokens)}<br>${escapeHtml(statusText(a.status))}</span>
+    <span class="meta ${STATUS_CLASS.get(a.status) ?? ''}">${tokens(a.contextTokens)}<br>${escapeHtml(statusText(a.status))}</span>
   </li>`;
 }
 
@@ -254,24 +260,26 @@ function fishAt([px, py]) {
 }
 
 function updateTooltip() {
-  const fish = pointer && fishAt(pointer);
-  const onChest = !fish && pointer && chest.hit(...pointer);
+  // Front first, as drawn: the diver swims over the fish, the chest sits behind them.
+  const onDiver = pointer && diver.hit(...pointer);
+  const fish = pointer && !onDiver && fishAt(pointer);
+  const other = onDiver ? diver : !fish && pointer && chest.hit(...pointer) ? chest : null;
   hoverId = fish ? fish.id : null;
-  tooltipEl.hidden = !fish && !onChest;
-  canvas.style.cursor = fish || onChest ? 'pointer' : 'default';
+  tooltipEl.hidden = !fish && !other;
+  canvas.style.cursor = tooltipEl.hidden ? 'default' : 'pointer';
   if (tooltipEl.hidden) return;
 
   // Touch the DOM only when the content changes. A fish's changes with each snapshot; the
-  // chest's also with the clock (stale, reset), so compare its markup instead.
+  // chest's and the diver's also with the clock, so compare their markup instead.
   if (fish && fish.agent !== tooltipFor) {
     tooltipFor = fish.agent;
-    chestTooltip = '';
+    markupTooltip = '';
     tooltipEl.innerHTML = tooltipHtml(fish.agent);
-  } else if (onChest) {
-    const html = chest.tooltipHtml(escapeHtml);
-    if (html !== chestTooltip) {
+  } else if (other) {
+    const html = other.tooltipHtml(escapeHtml);
+    if (html !== markupTooltip) {
       tooltipFor = null;
-      chestTooltip = html;
+      markupTooltip = html;
       tooltipEl.innerHTML = html;
     }
   }
@@ -288,7 +296,7 @@ function tooltipHtml(a) {
   return `<strong>${escapeHtml(a.label)}</strong>${generation}<br>
     ${detail}
     Context: ${tokens(a.contextTokens)} tokens<br>
-    Status: ${escapeHtml(statusText(a.status))}${lastTool}<br>
+    Status: ${escapeHtml(statusText(a.status))}${a.waitingFor ? ` · ${escapeHtml(a.waitingFor)}` : ''}${lastTool}<br>
     Tool calls: ${a.toolCalls}${errors}${compactions}<br>
     <span class="dim">${escapeHtml(a.source)}</span>`;
 }
@@ -298,8 +306,13 @@ function tooltipHtml(a) {
 // A Map, not an object literal, so a status such as 'constructor' cannot hit Object.prototype.
 const STATUS_TEXT = new Map([
   ['Working', 'working'],
-  ['Idle', 'waiting'],
+  ['Idle', 'your turn'],
+  ['Waiting', 'needs you'],
   ['Done', 'done'],
+]);
+const STATUS_CLASS = new Map([
+  ['Working', 'working'],
+  ['Waiting', 'wait'],
 ]);
 const HTML_ENTITIES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 

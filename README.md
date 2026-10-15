@@ -8,13 +8,16 @@ A live aquarium of your AI coding agents. Each session is a school of fish: the 
 |---|---|
 | Context size (tokens) | Body length (sqrt scale) |
 | Activity (working, tool calls/min) | Swim speed, tail beat, bubbles |
-| Waiting for you | Slow drift near the sand |
+| Turn finished, your move | Slow drift near the sand |
+| Blocked mid-turn on you (permission prompt, question, plan approval) | Same, with a pulsing amber glow |
 | Generation | Hue = session; each generation is less saturated and darker. Parents also glow, wear two pale bands and a tall dorsal fin |
 | Tool error | Red flash |
 | Compaction | Squeeze + burst of bubbles; the fish shrinks |
 | Subagent finished | Swims off and fades |
 
 The treasure chest on the sand is your plan's **5-hour limit**: the gold is what is left, the lid opens as far as there is gold to show, and spending lets coins float away. It glows amber below 30% and pulses red below 10%; when the window resets it refills with a burst. Grey means the numbers are old (over 30 minutes, or the window has reset since). Hover it for the weekly limit too.
+
+The diver is **you**. It swims to whichever agent has waited on you longest, agents blocked mid-turn before ones that merely finished, and climbs back up the boat's ladder when nobody waits. The badge over its head counts who is waiting, amber when one of them is blocked; hover it for the list with how long each has waited. "Blocked" comes from Claude Code's live-session registry (`status: "waiting"`, interactive CLI only) and, for SDK hosts such as T3 Code, from an `AskUserQuestion` or `ExitPlanMode` still unanswered in the transcript. A permission prompt in an SDK host leaves no trace in either, so such a session shows as working until it stalls.
 
 ## Run
 
@@ -53,7 +56,7 @@ flowchart LR
 - **`Domain/AgentModel.cs`** is the seam. Sources only speak `AgentDescriptor` (identity, parent, depth) and `AgentObservation` (context, tool call, error, compaction, status). Nothing downstream knows about Claude Code.
 - **`Sources/ClaudeCode`** reads `<session>.jsonl` for the main agent and `<session>/subagents/agent-<id>.jsonl` plus `.meta.json` for subagents. A subagent's parent is the agent whose transcript contains the spawning `tool_use` id, so nesting deeper than one level works without special cases. Context = `input + cache_read + cache_creation + output` tokens of the latest assistant message. The transcript format is undocumented (checked against Claude Code 2.1.300), so the parser ignores whatever it does not recognise.
 - **`Tank/AgentRegistry`** holds state, derives activity and staleness, and prunes.
-- **`wwwroot/js`** is plain ES modules on Canvas 2D, with no build step. `fish.js` handles steering and drawing, `scenery.js` the water, `chest.js` the treasure chest, `colors.js` the session hue × generation tone.
+- **`wwwroot/js`** is plain ES modules on Canvas 2D, with no build step. `fish.js` handles steering and drawing, `scenery.js` the water, `chest.js` the treasure chest, `diver.js` the diver, `colors.js` the session hue × generation tone.
 
 ### Adding a source
 

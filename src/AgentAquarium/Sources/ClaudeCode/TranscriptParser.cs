@@ -14,7 +14,18 @@ public sealed record TranscriptLine(
     string? Entrypoint = null)
 {
     public static readonly TranscriptLine Empty = new([], []);
+
+    public DateTimeOffset? At { get; init; }
+
+    /// <summary>Tool calls that block on the user until their result comes back.</summary>
+    public IReadOnlyList<UserWait> Waits { get; init; } = [];
+
+    /// <summary>The tool calls this line carries results for.</summary>
+    public IReadOnlyList<string> ToolResultIds { get; init; } = [];
 }
+
+/// <summary>A tool call waiting on the user, and what for.</summary>
+public sealed record UserWait(string ToolUseId, string Reason);
 
 /// <summary>
 /// Parses one line of a Claude Code session transcript (<c>~/.claude/projects/&lt;slug&gt;/*.jsonl</c>).
@@ -25,6 +36,16 @@ public static class TranscriptParser
 {
     /// <summary>A background subagent ends by calling this tool, not with an end_turn.</summary>
     private const string HandbackTool = "SubagentHandback";
+
+    /// <summary>
+    /// Tools that are answered by the user, not run. An SDK host (T3 Code) never reports
+    /// "waiting" in the live-session registry, so for its sessions these are the only sign.
+    /// </summary>
+    private static readonly Dictionary<string, string> UserTools = new(StringComparer.Ordinal)
+    {
+        ["AskUserQuestion"] = "a question",
+        ["ExitPlanMode"] = "plan approval",
+    };
 
     public static TranscriptLine Parse(string line)
     {
@@ -53,14 +74,16 @@ public static class TranscriptParser
 
         var observations = new List<AgentObservation>();
         var toolUseIds = new List<string>();
+        var waits = new List<UserWait>();
+        var toolResultIds = new List<string>();
 
         switch (type)
         {
             case "assistant" when root.TryGetProperty("message", out var message):
-                ParseAssistant(message, at, observations, toolUseIds);
+                ParseAssistant(message, at, observations, toolUseIds, waits);
                 break;
             case "user" when root.TryGetProperty("message", out var message):
-                ParseUser(message, at, observations);
+                ParseUser(message, at, observations, toolResultIds);
                 break;
             case "system" when Str(root, "subtype") == "compact_boundary":
                 var meta = root.TryGetProperty("compactMetadata", out var m) ? m : default;
@@ -69,11 +92,16 @@ public static class TranscriptParser
         }
 
         return new TranscriptLine(observations, toolUseIds, Str(root, "cwd"), Str(root, "gitBranch"),
-            Entrypoint: Str(root, "entrypoint"));
+            Entrypoint: Str(root, "entrypoint"))
+        {
+            At = at,
+            Waits = waits,
+            ToolResultIds = toolResultIds,
+        };
     }
 
     private static void ParseAssistant(JsonElement message, DateTimeOffset at,
-        List<AgentObservation> observations, List<string> toolUseIds)
+        List<AgentObservation> observations, List<string> toolUseIds, List<UserWait> waits)
     {
         if (message.TryGetProperty("usage", out var usage))
         {
@@ -93,17 +121,23 @@ public static class TranscriptParser
             var name = Str(block, "name") ?? "tool";
             observations.Add(new ToolCallObserved(at, name));
             handedBack |= name == HandbackTool;
-            if (Str(block, "id") is { } id)
-                toolUseIds.Add(id);
+            if (Str(block, "id") is not { } id)
+                continue;
+            toolUseIds.Add(id);
+            if (UserTools.TryGetValue(name, out var reason))
+                waits.Add(new UserWait(id, reason));
         }
 
         // null stop_reason = a partial (streamed) record; the turn is still going.
         var stop = Str(message, "stop_reason");
         var working = !handedBack && stop is null or "tool_use" or "pause_turn";
-        observations.Add(new StatusObserved(at, working ? AgentStatus.Working : AgentStatus.Idle));
+        observations.Add(waits.Count > 0
+            ? new StatusObserved(at, AgentStatus.Waiting, waits[0].Reason)
+            : new StatusObserved(at, working ? AgentStatus.Working : AgentStatus.Idle));
     }
 
-    private static void ParseUser(JsonElement message, DateTimeOffset at, List<AgentObservation> observations)
+    private static void ParseUser(JsonElement message, DateTimeOffset at, List<AgentObservation> observations,
+        List<string> toolResultIds)
     {
         // A plain prompt starts work. A line of only tool results changes nothing: the tool_use
         // before it already said "working", and after a hand-back the result must not undo "done".
@@ -119,6 +153,8 @@ public static class TranscriptParser
         foreach (var block in Blocks(message))
         {
             var type = Str(block, "type");
+            if (type == "tool_result" && Str(block, "tool_use_id") is { } resultFor)
+                toolResultIds.Add(resultFor);
             if (type == "tool_result"
                 && block.TryGetProperty("is_error", out var isError) && isError.ValueKind == JsonValueKind.True)
                 observations.Add(new ToolErrorObserved(at));

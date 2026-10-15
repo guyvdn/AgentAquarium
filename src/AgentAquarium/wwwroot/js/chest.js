@@ -1,6 +1,8 @@
 // The treasure chest: the plan's 5-hour limit. The gold is what is left of it, the lid opens
 // as far as there is gold to show, and spending lets coins float away.
 
+import { time } from './time.js';
+
 const TAU = Math.PI * 2;
 const WIDTH = 100;
 const BODY = 50; // body height; the bottom part sinks into the sand
@@ -352,14 +354,6 @@ function goldColor(remaining) {
 
 function clamp01(v) {
   return Math.max(0, Math.min(1, v));
-}
-
-/**
- * Milliseconds since the epoch. The server sends up to 7 fractional digits; ECMAScript only
- * promises to parse 3, so trim the rest rather than risk NaN.
- */
-function time(iso) {
-  return Date.parse(iso.replace(/(\.\d{3})\d+/, '$1'));
 }
 
 function resetPassed(w, now = Date.now()) {

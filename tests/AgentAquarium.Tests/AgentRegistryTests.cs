@@ -40,7 +40,43 @@ public class AgentRegistryTests
 
         var agent = Assert.Single(_registry.Snapshot());
         Assert.Equal(AgentStatus.Idle, agent.Status);
+        Assert.Equal(_clock.GetUtcNow() - TimeSpan.FromMinutes(6), agent.StatusSince);
         Assert.Equal(0, agent.Activity);
+    }
+
+    [Fact]
+    public void Status_since_is_when_the_status_changed_not_when_it_was_repeated()
+    {
+        var asked = Now - TimeSpan.FromMinutes(10);
+        _registry.Upsert(new AgentDescriptor("a", null, "a", "test", "s"));
+        _registry.Observe("a", new StatusObserved(asked - TimeSpan.FromMinutes(1), AgentStatus.Working));
+        _registry.Observe("a", new StatusObserved(asked, AgentStatus.Waiting, "a question"));
+        _registry.Observe("a", new StatusObserved(Now, AgentStatus.Waiting, "a question"));
+
+        var agent = Assert.Single(_registry.Snapshot());
+        Assert.Equal((AgentStatus.Waiting, "a question", asked), (agent.Status, agent.WaitingFor, agent.StatusSince));
+    }
+
+    [Fact]
+    public void A_replayed_idle_session_is_idle_since_its_last_turn_not_since_discovery()
+    {
+        var ended = Now - TimeSpan.FromMinutes(20);
+        _registry.Upsert(new AgentDescriptor("a", null, "a", "test", "s", LifetimeManaged: true));
+        _registry.Observe("a", new StatusObserved(ended, AgentStatus.Idle));
+
+        Assert.Equal(ended, Assert.Single(_registry.Snapshot()).StatusSince);
+    }
+
+    [Fact]
+    public void Waiting_does_not_stall_and_leaving_it_clears_the_reason()
+    {
+        _registry.Upsert(new AgentDescriptor("a", null, "a", "test", "s"));
+        _registry.Observe("a", new StatusObserved(Now, AgentStatus.Waiting, "permission"));
+        _clock.Advance(TimeSpan.FromMinutes(6));
+        Assert.Equal(AgentStatus.Waiting, Assert.Single(_registry.Snapshot()).Status);
+
+        _registry.Observe("a", new StatusObserved(Now, AgentStatus.Working));
+        Assert.Null(Assert.Single(_registry.Snapshot()).WaitingFor);
     }
 
     [Fact]

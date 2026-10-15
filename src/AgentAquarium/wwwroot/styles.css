@@ -5,6 +5,7 @@
   --glass-edge: rgb(150 210 255 / 18%);
   --ok: #5ef2a0;
   --bad: #ff5d6c;
+  --wait: #ffb347;
 
   font-family: 'Segoe UI', system-ui, sans-serif;
 }
@@ -138,6 +139,12 @@ canvas#tank {
 
 .panel .meta.working {
   color: var(--ok);
+}
+
+.panel .meta.wait,
+.tooltip .wait,
+.legend .wait {
+  color: var(--wait);
 }
 
 .legend {

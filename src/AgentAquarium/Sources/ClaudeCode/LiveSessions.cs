@@ -5,6 +5,7 @@ using System.Text.Json;
 namespace AgentAquarium.Sources.ClaudeCode;
 
 /// <summary>A running Claude Code process, as it registers itself in <c>&lt;config&gt;/sessions/&lt;pid&gt;.json</c>.</summary>
+/// <param name="Status"><c>busy</c>, <c>idle</c>, or (interactive CLI only) <c>waiting</c>, with <paramref name="WaitingFor"/> saying on what.</param>
 public sealed record LiveSession(
     string SessionId,
     int Pid,
@@ -13,7 +14,8 @@ public sealed record LiveSession(
     string? Entrypoint,
     string? Status,
     long? StatusUpdatedAt,
-    string? ProcStart);
+    string? ProcStart,
+    string? WaitingFor = null);
 
 /// <summary>
 /// Reads Claude Code's live-session registry, which says which sessions actually have a

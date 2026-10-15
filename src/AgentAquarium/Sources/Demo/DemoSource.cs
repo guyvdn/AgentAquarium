@@ -21,6 +21,7 @@ public sealed class DemoSource(IAgentSink sink, IUsageSink usage, IOptions<DemoO
     private static readonly string[] Projects = ["billing-api", "web-shop", "infra", "mobile-app", "docs-site"];
     private static readonly string[] Tools = ["Read", "Edit", "Bash", "Grep", "Glob", "WebFetch", "Write"];
     private static readonly string[] SubagentTypes = ["Explore", "general-purpose", "Plan", "code-reviewer"];
+    private static readonly string[] WaitReasons = ["permission prompt", "a question", "plan approval"];
 
     private readonly Random _random = new();
     private readonly List<Fake> _agents = [];
@@ -70,11 +71,16 @@ public sealed class DemoSource(IAgentSink sink, IUsageSink usage, IOptions<DemoO
                     Spawn(agent);
             }
 
-            // Mains alternate between working and waiting; subagents work, then finish.
+            // Mains alternate between working and waiting on the user, finished or blocked mid-turn;
+            // subagents work, then finish.
             if (agent.Depth == 0 && _random.NextDouble() < 0.01)
             {
                 agent.Working = !agent.Working;
-                sink.Observe(agent.Id, new StatusObserved(now, agent.Working ? AgentStatus.Working : AgentStatus.Idle));
+                sink.Observe(agent.Id, agent.Working
+                    ? new StatusObserved(now, AgentStatus.Working)
+                    : _random.NextDouble() < 0.4
+                        ? new StatusObserved(now, AgentStatus.Waiting, WaitReasons[_random.Next(WaitReasons.Length)])
+                        : new StatusObserved(now, AgentStatus.Idle));
             }
             else if (agent.Depth > 0 && _random.NextDouble() < 0.008)
             {

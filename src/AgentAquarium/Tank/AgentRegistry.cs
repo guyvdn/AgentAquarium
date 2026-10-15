@@ -67,7 +67,12 @@ public sealed class AgentRegistry(IOptions<TankOptions> options, TimeProvider cl
                     state.ContextTokens = c.PostTokens;
                     break;
                 case StatusObserved s:
+                    // The default Idle is a guess, so the first report always dates the status.
+                    if (s.Status != state.Status || !state.StatusKnown)
+                        state.StatusSince = s.At;
+                    state.StatusKnown = true;
                     state.Status = s.Status;
+                    state.WaitingFor = s.Status == AgentStatus.Waiting ? s.WaitingFor : null;
                     if (s.Status == AgentStatus.Working)
                         state.RecentEvents.Enqueue(s.At);
                     break;
@@ -122,6 +127,9 @@ public sealed class AgentRegistry(IOptions<TankOptions> options, TimeProvider cl
         public DateTimeOffset LastSeen { get; set; } = firstSeen;
         public bool Observed { get; set; }
         public AgentStatus Status { get; set; } = AgentStatus.Idle;
+        public DateTimeOffset StatusSince { get; set; } = firstSeen;
+        public bool StatusKnown { get; set; }
+        public string? WaitingFor { get; set; }
         public long ContextTokens { get; set; }
         public int ToolCalls { get; set; }
         public int Errors { get; set; }
@@ -134,9 +142,9 @@ public sealed class AgentRegistry(IOptions<TankOptions> options, TimeProvider cl
             while (RecentEvents.TryPeek(out var t) && now - t > options.ActivityWindow)
                 RecentEvents.Dequeue();
 
-            var status = Status == AgentStatus.Working && now - LastSeen > options.StallAfter
-                ? AgentStatus.Idle
-                : Status;
+            var stalled = Status == AgentStatus.Working && now - LastSeen > options.StallAfter;
+            var status = stalled ? AgentStatus.Idle : Status;
+            var since = stalled ? LastSeen : StatusSince;
 
             // 0..1: a busy agent does roughly one tool call every few seconds.
             var activity = status == AgentStatus.Working
@@ -145,7 +153,7 @@ public sealed class AgentRegistry(IOptions<TankOptions> options, TimeProvider cl
 
             var d = Descriptor;
             return new AgentSnapshot(d.Id, d.ParentId, d.SessionId, d.Source, d.Label, d.Detail, d.Depth,
-                ContextTokens, status, activity, ToolCalls, Errors, Compactions, LastTool, LastSeen);
+                ContextTokens, status, WaitingFor, since, activity, ToolCalls, Errors, Compactions, LastTool, LastSeen);
         }
     }
 }
