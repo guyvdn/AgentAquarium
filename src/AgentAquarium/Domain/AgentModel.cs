@@ -14,6 +14,11 @@ public enum AgentStatus
     Waiting,
     /// <summary>Subagent finished its task; it will leave the tank.</summary>
     Done,
+    /// <summary>
+    /// Turn ended, but work it started in the background is still running and will wake it when it
+    /// finishes: not the user's turn yet.
+    /// </summary>
+    Background,
 }
 
 /// <summary>Identity and lineage of an agent. Upserted whenever a source learns more about it.</summary>

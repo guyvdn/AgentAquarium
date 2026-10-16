@@ -60,6 +60,13 @@ public sealed partial class ClaudeCodeSource(
     private const string T3Host = "T3 Code";
 
     /// <summary>
+    /// Background work that never reported back is let go after this, unless it said how long it may
+    /// run (a monitor): the longest a background command may run. A subagent can outlast it, but then
+    /// the turn shows as the user's.
+    /// </summary>
+    private static readonly TimeSpan BackgroundMaxAge = TimeSpan.FromHours(2);
+
+    /// <summary>
     /// How long a reported permission prompt may wait for its tool call to be read from the transcript.
     /// The call is written before the prompt, so this only covers the poll interval; past it, it was answered.
     /// </summary>
@@ -272,6 +279,16 @@ public sealed partial class ClaudeCodeSource(
     /// </summary>
     private void ReportLiveStatus(TrackedFile file)
     {
+        if (PruneBackground(file))
+            file.ReportedLiveStatus = null;
+        // Without the registry, no other report would say the turn is the user's now. Not only after a
+        // prune here: reading new lines may have pruned the last task already.
+        if (file.Live is null && file.ShowsBackground && file.Background.Count == 0 && file.Tail.Offset > 0)
+        {
+            sink.Observe(file.AgentId, new StatusObserved(clock.GetUtcNow(), AgentStatus.Idle));
+            file.ShowsBackground = false;
+        }
+
         // Only once the agent exists in the tank; before that the observation would be dropped.
         if (file.Live?.Status is not { } status || file.Tail.Offset == 0 || status == file.ReportedLiveStatus)
             return;
@@ -281,7 +298,7 @@ public sealed partial class ClaudeCodeSource(
             // An SDK host asks its questions itself, so the registry cannot see them; the transcript can.
             _ when file.Waits.Count > 0 => AgentStatus.Waiting,
             "busy" => AgentStatus.Working,
-            "idle" => AgentStatus.Idle,
+            "idle" => file.Background.Count > 0 ? AgentStatus.Background : AgentStatus.Idle,
             "waiting" => AgentStatus.Waiting,
             _ => null,
         };
@@ -291,6 +308,7 @@ public sealed partial class ClaudeCodeSource(
         var at = file.Live.StatusUpdatedAt is { } ms ? DateTimeOffset.FromUnixTimeMilliseconds(ms) : clock.GetUtcNow();
         var reason = file.Live.WaitingFor ?? file.Waits.Values.FirstOrDefault();
         sink.Observe(file.AgentId, new StatusObserved(at, mapped.Value, reason));
+        file.ShowsBackground = mapped == AgentStatus.Background;
         file.ReportedLiveStatus = status;
     }
 
@@ -332,7 +350,22 @@ public sealed partial class ClaudeCodeSource(
             if (EndsTurn(line) || line.IsPrompt)
                 file.OpenToolUses.Clear();
 
+            foreach (var task in line.BackgroundStarted)
+            {
+                var started = line.At ?? clock.GetUtcNow();
+                file.Background[task.Id] = new RunningTask(started, started + (task.Timeout ?? BackgroundMaxAge));
+            }
+            foreach (var id in line.BackgroundEnded)
+                file.Background.Remove(id);
+
+            var from = observations.Count;
             TrackWaits(file.Waits, line, observations);
+            // A turn that ends with work still running in the background is woken again when it finishes.
+            PruneBackground(file);
+            if (!file.IsSubagent && file.Background.Count > 0)
+                for (var i = from; i < observations.Count; i++)
+                    if (observations[i] is StatusObserved { Status: AgentStatus.Idle } idle)
+                        observations[i] = idle with { Status = AgentStatus.Background };
         }
 
         // Upsert before observing: the registry ignores observations for unknown agents,
@@ -343,7 +376,10 @@ public sealed partial class ClaudeCodeSource(
         {
             sink.Observe(file.AgentId, observation);
             if (observation is StatusObserved s)
+            {
                 file.Finished = s.Status == AgentStatus.Done;
+                file.ShowsBackground = s.Status == AgentStatus.Background;
+            }
         }
 
         // Transcript lines may have set a status; re-apply the registry's, which wins.
@@ -375,6 +411,22 @@ public sealed partial class ClaudeCodeSource(
 
         if (answered && waits.Count == 0 && line.At is { } at)
             observations.Add(new StatusObserved(at, AgentStatus.Working));
+    }
+
+    /// <summary>
+    /// Forgets background work that cannot report back any more: started before the running process
+    /// (a restart loses it), or past its deadline. True when any was forgotten.
+    /// </summary>
+    private bool PruneBackground(TrackedFile file)
+    {
+        if (file.Background.Count == 0)
+            return false;
+        var processStart = file.Live?.StartedAt is { } ms ? DateTimeOffset.FromUnixTimeMilliseconds(ms) : DateTimeOffset.MinValue;
+        var now = clock.GetUtcNow();
+        var gone = file.Background.Where(b => b.Value.Started < processStart || b.Value.Until < now).Select(b => b.Key).ToList();
+        foreach (var id in gone)
+            file.Background.Remove(id);
+        return gone.Count > 0;
     }
 
     private static bool EndsTurn(TranscriptLine line) =>
@@ -489,9 +541,18 @@ public sealed partial class ClaudeCodeSource(
         /// <summary>Open questions to the user: tool_use id → what for.</summary>
         public Dictionary<string, string> Waits { get; } = new(StringComparer.Ordinal);
 
+        /// <summary>Background work still running, by task id. It outlives turns.</summary>
+        public Dictionary<string, RunningTask> Background { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>The last status reported was Background.</summary>
+        public bool ShowsBackground { get; set; }
+
         /// <summary>Tool calls without a result yet, in this turn, by tool_use id.</summary>
         public Dictionary<string, OpenToolUse> OpenToolUses { get; } = new(StringComparer.Ordinal);
     }
+
+    /// <summary>Background work: when it started, and when to stop expecting it to report back.</summary>
+    internal sealed record RunningTask(DateTimeOffset Started, DateTimeOffset Until);
 
     /// <summary>A tool call without a result yet: what, when, and with which arguments.</summary>
     internal sealed record OpenToolUse(string Name, DateTimeOffset At, JsonElement Input);

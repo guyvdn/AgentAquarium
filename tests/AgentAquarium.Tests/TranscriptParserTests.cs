@@ -229,4 +229,74 @@ public class TranscriptParserTests
     [InlineData(null, @"D:\repo", null)]
     public void Host_names_where_the_session_runs(string? entrypoint, string cwd, string? expected) =>
         Assert.Equal(expected, ClaudeCodeSource.Host(entrypoint, cwd));
+
+    [Theory]
+    [InlineData("""{"stdout":"","backgroundTaskId":"blqwuj5cu"}""", "blqwuj5cu")]
+    [InlineData("""{"isAsync":true,"status":"async_launched","agentId":"af8b1ab80b427cbc6"}""", "af8b1ab80b427cbc6")]
+    [InlineData("""{"taskId":"b7f77tzj0","timeoutMs":1800000,"persistent":false}""", "b7f77tzj0")]
+    public void Tool_result_names_work_started_in_the_background(string toolUseResult, string id)
+    {
+        var line = TranscriptParser.Parse($$$"""
+            {"type":"user",{{{Ts}}},"toolUseResult":{{{toolUseResult}}},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"running"}]}}
+            """);
+
+        Assert.Equal(id, Assert.Single(line.BackgroundStarted).Id);
+    }
+
+    [Fact]
+    public void Monitor_says_how_long_it_may_run() =>
+        Assert.Equal(TimeSpan.FromMinutes(5), Assert.Single(TranscriptParser.Parse($$$"""
+            {"type":"user",{{{Ts}}},"toolUseResult":{"taskId":"m1","timeoutMs":300000,"persistent":false},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"armed"}]}}
+            """).BackgroundStarted).Timeout);
+
+    [Fact]
+    public void Notification_queued_mid_turn_ends_background_work() =>
+        Assert.Equal(["bg1"], TranscriptParser.Parse($$$"""
+            {"type":"attachment",{{{Ts}}},"attachment":{"type":"queued_command","prompt":"<task-notification>\n<task-id>bg1</task-id>\n<status>completed</status>\n</task-notification>"}}
+            """).BackgroundEnded);
+
+    [Fact]
+    public void Task_stop_ends_the_task_it_stopped() =>
+        Assert.Equal(["bg1"], TranscriptParser.Parse($$$"""
+            {"type":"user",{{{Ts}}},"toolUseResult":{"message":"Successfully stopped task: bg1","task_id":"bg1","task_type":"local_bash"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"stopped"}]}}
+            """).BackgroundEnded);
+
+    [Theory]
+    [InlineData("<agent-message from=\"a1\">\n[Subagent hand-back] The text below is the final report", true)]
+    [InlineData("<agent-message from=\"a1\"> [Subagent hand-back] The text below", true)]
+    [InlineData("<agent-message from=\"a1\">\nCan you check the build?", false)]
+    public void Subagent_hand_back_ends_it(string message, bool ends) =>
+        Assert.Equal(ends ? ["a1"] : [], TranscriptParser.BackgroundEnd($"Another Claude session sent a message:\n{message}\n</agent-message>"));
+
+    [Fact]
+    public void Each_notification_is_read_on_its_own()
+    {
+        // A monitor's event has no status; it must not borrow the next notification's.
+        const string text = """
+            <task-notification><task-id>m1</task-id><event>line</event></task-notification>
+            <task-notification><task-id>bg1</task-id><status>completed</status></task-notification>
+            """;
+
+        Assert.Equal(["bg1"], TranscriptParser.BackgroundEnd(text));
+    }
+
+    [Fact]
+    public void Task_update_result_is_not_background_work() =>
+        Assert.Empty(TranscriptParser.Parse($$$"""
+            {"type":"user",{{{Ts}}},"toolUseResult":{"success":true,"taskId":"2","updatedFields":["status"]},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"ok"}]}}
+            """).BackgroundStarted);
+
+    [Theory]
+    [InlineData("completed", true)]
+    [InlineData("failed", true)]
+    [InlineData("killed", true)]
+    [InlineData("running", false)]
+    public void Task_notification_ends_background_work(string status, bool ends)
+    {
+        var line = TranscriptParser.Parse($$$"""
+            {"type":"user",{{{Ts}}},"message":{"role":"user","content":"<task-notification>\n<task-id>blqwuj5cu</task-id>\n<tool-use-id>toolu_1</tool-use-id>\n<status>{{{status}}}</status>\n<summary>Background command done</summary>\n</task-notification>"}}
+            """);
+
+        Assert.Equal(ends ? ["blqwuj5cu"] : [], line.BackgroundEnded);
+    }
 }

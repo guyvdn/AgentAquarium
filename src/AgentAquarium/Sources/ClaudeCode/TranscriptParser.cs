@@ -25,7 +25,16 @@ public sealed record TranscriptLine(
 
     /// <summary>A prompt from the user: whatever the turn before left open is over.</summary>
     public bool IsPrompt { get; init; }
+
+    /// <summary>Work started in the background: a command, a subagent, a monitor.</summary>
+    public IReadOnlyList<BackgroundTask> BackgroundStarted { get; init; } = [];
+
+    /// <summary>Background work that reported it has ended, by task id.</summary>
+    public IReadOnlyList<string> BackgroundEnded { get; init; } = [];
 }
+
+/// <summary>Work running in the background; <paramref name="Timeout"/> when it says how long it may run (a monitor).</summary>
+public sealed record BackgroundTask(string Id, TimeSpan? Timeout = null);
 
 /// <summary>A tool call the agent made, with its arguments.</summary>
 public sealed record ToolUse(string Id, string Name, JsonElement Input);
@@ -83,6 +92,8 @@ public static class TranscriptParser
         var waits = new List<UserWait>();
         var toolResultIds = new List<string>();
         var isPrompt = false;
+        IReadOnlyList<BackgroundTask> backgroundStarted = [];
+        IReadOnlyList<string> backgroundEnded = [];
 
         switch (type)
         {
@@ -93,6 +104,13 @@ public static class TranscriptParser
                 // Not text Claude Code adds itself mid-turn (a skill's body, a command caveat), nor text beside a result.
                 isPrompt = ParseUser(message, at, observations, toolResultIds) && toolResultIds.Count == 0
                            && !(root.TryGetProperty("isMeta", out var isMeta) && isMeta.ValueKind == JsonValueKind.True);
+                backgroundStarted = BackgroundStart(root);
+                backgroundEnded = [.. BackgroundEnd(UserText(message)), .. Stopped(root)];
+                break;
+            // A notification that arrives mid-turn is queued, and written as an attachment.
+            case "attachment" when root.TryGetProperty("attachment", out var attachment)
+                                   && Str(attachment, "type") == "queued_command":
+                backgroundEnded = BackgroundEnd(Str(attachment, "prompt") ?? "");
                 break;
             case "system" when Str(root, "subtype") == "compact_boundary":
                 var meta = root.TryGetProperty("compactMetadata", out var m) ? m : default;
@@ -107,8 +125,71 @@ public static class TranscriptParser
             Waits = waits,
             ToolResultIds = toolResultIds,
             IsPrompt = isPrompt,
+            BackgroundStarted = backgroundStarted,
+            BackgroundEnded = backgroundEnded,
         };
     }
+
+    /// <summary>
+    /// What a tool result says now runs in the background. Each kind words it differently: a Bash
+    /// command <c>backgroundTaskId</c>; an Agent <c>status: async_launched</c> with its <c>agentId</c>;
+    /// a Monitor <c>taskId</c> with its <c>timeoutMs</c>.
+    /// </summary>
+    private static IReadOnlyList<BackgroundTask> BackgroundStart(JsonElement root)
+    {
+        if (!root.TryGetProperty("toolUseResult", out var result) || result.ValueKind != JsonValueKind.Object)
+            return [];
+        if ((Str(result, "backgroundTaskId") ?? (Str(result, "status") == "async_launched" ? Str(result, "agentId") : null)) is { } id)
+            return [new BackgroundTask(id)];
+        if (Str(result, "taskId") is { } monitor && Long(result, "timeoutMs") is > 0 and var ms)
+            return [new BackgroundTask(monitor, TimeSpan.FromMilliseconds(ms))];
+        return [];
+    }
+
+    /// <summary>A TaskStop result: the task it stopped sends no notification of its own.</summary>
+    private static IReadOnlyList<string> Stopped(JsonElement root) =>
+        root.TryGetProperty("toolUseResult", out var result) && Str(result, "task_type") is not null
+        && Str(result, "task_id") is { } id
+            ? [id]
+            : [];
+
+    /// <summary>
+    /// Background work that has ended, from what Claude Code delivers back to the session: a
+    /// <c>&lt;task-notification&gt;</c> with a final status (a monitor's events have none), or a
+    /// subagent's hand-back, which many send instead of a notification.
+    /// </summary>
+    internal static List<string> BackgroundEnd(string text)
+    {
+        var ended = new List<string>();
+        foreach (var notification in Between(text, "<task-notification>", "</task-notification>"))
+            if (Between(notification, "<task-id>", "</task-id>").FirstOrDefault() is { } id
+                && Between(notification, "<status>", "</status>").FirstOrDefault() is "completed" or "failed" or "killed" or "stopped")
+                ended.Add(id);
+        foreach (var message in Between(text, "<agent-message from=\"", "</agent-message>"))
+            if (message.IndexOf("\">", StringComparison.Ordinal) is > 0 and var quote
+                && message[(quote + 2)..].TrimStart().StartsWith("[Subagent hand-back]", StringComparison.Ordinal))
+                ended.Add(message[..quote]);
+        return ended;
+    }
+
+    /// <summary>Every piece of text between an opening and a closing marker, never crossing into the next.</summary>
+    private static IEnumerable<string> Between(string text, string open, string close)
+    {
+        for (var start = text.IndexOf(open, StringComparison.Ordinal); start >= 0;
+             start = text.IndexOf(open, start + open.Length, StringComparison.Ordinal))
+        {
+            var from = start + open.Length;
+            var end = text.IndexOf(close, from, StringComparison.Ordinal);
+            if (end < 0)
+                yield break;
+            yield return text[from..end];
+        }
+    }
+
+    private static string UserText(JsonElement message) =>
+        message.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.String
+            ? content.GetString()!
+            : string.Concat(Blocks(message).Select(b => Str(b, "type") == "text" ? Str(b, "text") : null));
 
     private static void ParseAssistant(JsonElement message, DateTimeOffset at,
         List<AgentObservation> observations, List<ToolUse> toolUses, List<UserWait> waits)

@@ -15,7 +15,8 @@ public sealed record LiveSession(
     string? Status,
     long? StatusUpdatedAt,
     string? ProcStart,
-    string? WaitingFor = null);
+    string? WaitingFor = null,
+    long? StartedAt = null);
 
 /// <summary>
 /// Reads Claude Code's live-session registry, which says which sessions actually have a

@@ -345,6 +345,7 @@ const STATUS_TEXT = new Map([
   ['Idle', 'your turn'],
   ['Waiting', 'needs you'],
   ['Done', 'done'],
+  ['Background', 'background work'],
 ]);
 const STATUS_CLASS = new Map([
   ['Working', 'working'],
