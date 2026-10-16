@@ -26,6 +26,14 @@ public sealed class ClaudeCodeOptions
     public string? UsageFile { get; set; }
 
     public TimeSpan UsagePollInterval { get; set; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// T3 Code's state database, for the titles it gives its threads. Defaults to ~/.t3/userdata/state.sqlite.
+    /// Empty turns it off, and T3 Code sessions show Claude's title.
+    /// </summary>
+    public string? T3StateFile { get; set; }
+
+    public TimeSpan T3PollInterval { get; set; } = TimeSpan.FromSeconds(5);
 }
 
 /// <summary>
@@ -49,6 +57,8 @@ public sealed partial class ClaudeCodeSource(
 
     private const int LiveMissesBeforeEnd = 3;
 
+    private const string T3Host = "T3 Code";
+
     /// <summary>
     /// How long a reported permission prompt may wait for its tool call to be read from the transcript.
     /// The call is written before the prompt, so this only covers the poll interval; past it, it was answered.
@@ -63,6 +73,9 @@ public sealed partial class ClaudeCodeSource(
 
     /// <summary>Permission prompts from the hook whose tool call has not been read yet.</summary>
     private readonly List<PermissionRequest> _permissionRequests = [];
+
+    private readonly T3ThreadTitles _t3Titles = new(options.Value.T3StateFile ?? T3ThreadTitles.DefaultStateFile);
+    private DateTimeOffset? _t3TitlesReadAt;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -91,6 +104,7 @@ public sealed partial class ClaudeCodeSource(
     internal void Poll(IEnumerable<string> roots)
     {
         var since = clock.GetUtcNow() - _options.LookBack;
+        var t3TitlesChanged = RefreshT3Titles();
 
         foreach (var root in roots.Where(Directory.Exists))
         {
@@ -134,6 +148,12 @@ public sealed partial class ClaudeCodeSource(
         foreach (var file in _files.Values.Where(f => f.IsSubagent && !f.ParentResolved && !f.Finished && f.Tail.Offset > 0))
             sink.Upsert(Describe(file));
 
+        // A thread renamed in T3 Code while its session is quiet writes nothing to the transcript. Only sessions
+        // the registry keeps while their process runs: one the tank has pruned would come back.
+        if (t3TitlesChanged)
+            foreach (var file in _files.Values.Where(f => !f.IsSubagent && f.Live is not null && f.Tail.Offset > 0))
+                sink.Upsert(Describe(file));
+
         _permissionRequests.AddRange(permissionRequests.Drain());
         _permissionRequests.RemoveAll(MarkPermissionWait);
     }
@@ -176,6 +196,15 @@ public sealed partial class ClaudeCodeSource(
             ? candidates.Find(u => u.Value.Input.ValueKind != JsonValueKind.Undefined && JsonElement.DeepEquals(u.Value.Input, input))
             : default;
         return exact.Key ?? (candidates.Count == 1 ? candidates[0].Key : null);
+    }
+
+    private bool RefreshT3Titles()
+    {
+        var now = clock.GetUtcNow();
+        if (now - _t3TitlesReadAt < _options.T3PollInterval)
+            return false;
+        _t3TitlesReadAt = now;
+        return _t3Titles.Refresh();
     }
 
     private void PollRoot(string root, IReadOnlyDictionary<string, LiveSession>? live, DateTimeOffset since)
@@ -357,7 +386,9 @@ public sealed partial class ClaudeCodeSource(
         {
             var project = file.Cwd is null ? file.SessionId[..Math.Min(8, file.SessionId.Length)] : ProjectName(file.Cwd);
             var host = Host(file.Live?.Entrypoint ?? file.Entrypoint, file.Cwd);
-            var detail = string.Join(" · ", new[] { host, file.Title, file.GitBranch }.Where(s => !string.IsNullOrEmpty(s)));
+            // T3 Code names its threads itself; show the name its sidebar shows.
+            var title = host == T3Host ? _t3Titles.TitleFor(file.SessionId) ?? file.Title : file.Title;
+            var detail = string.Join(" · ", new[] { host, title, file.GitBranch }.Where(s => !string.IsNullOrEmpty(s)));
             return new AgentDescriptor(file.AgentId, null, file.SessionId, SourceName, project, detail, 0,
                 LifetimeManaged: file.Live is not null);
         }
@@ -390,7 +421,7 @@ public sealed partial class ClaudeCodeSource(
     internal static string? Host(string? entrypoint, string? cwd) => entrypoint switch
     {
         _ when cwd?.Contains($"{Path.DirectorySeparatorChar}.t3{Path.DirectorySeparatorChar}", StringComparison.Ordinal) == true
-               || cwd?.Contains("/.t3/", StringComparison.Ordinal) == true => "T3 Code",
+               || cwd?.Contains("/.t3/", StringComparison.Ordinal) == true => T3Host,
         "cli" => "CLI",
         "sdk-ts" or "sdk-py" => "SDK",
         null or "" => null,

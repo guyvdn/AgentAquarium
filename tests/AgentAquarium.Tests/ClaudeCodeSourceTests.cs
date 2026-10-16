@@ -19,7 +19,7 @@ public sealed class ClaudeCodeSourceTests : IDisposable
     public ClaudeCodeSourceTests()
     {
         _registry = new AgentRegistry(Options.Create(new TankOptions()), _clock);
-        _source = new ClaudeCodeSource(_registry, Options.Create(new ClaudeCodeOptions()), new PermissionRequests(),
+        _source = new ClaudeCodeSource(_registry, Options.Create(new ClaudeCodeOptions { T3StateFile = "" }), new PermissionRequests(),
             _clock, NullLogger<ClaudeCodeSource>.Instance);
     }
 
