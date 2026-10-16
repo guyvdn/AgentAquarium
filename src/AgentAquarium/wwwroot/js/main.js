@@ -9,6 +9,7 @@ const RECONNECT_MAX_MS = 30_000;
 const SURFACE = 60; // px kept clear above the fish, under the title
 const MAX_DT = 0.05; // s; a backgrounded tab must not teleport the fish when it comes back
 const TOOLTIP_OFFSET = 14;
+const LABEL_MAX_WIDTH = 220; // px; session titles can be long
 const TOOLTIP_ROOM = 330; // the tooltip's max-width plus a margin, so it never runs off the right edge
 
 const canvas = document.getElementById('tank');
@@ -195,6 +196,29 @@ function render(t) {
   for (const fish of ordered) if (fish.isRoot) drawLabel(fish);
 }
 
+/** Label → what fits, so a long title is measured once rather than every frame. */
+const fittedLabels = new Map();
+
+/**
+ * Cuts text to fit with an ellipsis, measured in the current ctx.font. The Schools list truncates
+ * with CSS; the canvas has to do it itself. Cut by code point, so an emoji is never split.
+ */
+function fitText(text, maxWidth) {
+  const cached = fittedLabels.get(text);
+  if (cached !== undefined) return cached;
+  let fitted = text;
+  if (ctx.measureText(text).width > maxWidth) {
+    const chars = Array.from(text);
+    let end = chars.length;
+    const cut = n => `${chars.slice(0, n).join('').trimEnd()}…`;
+    while (end > 1 && ctx.measureText(cut(end)).width > maxWidth) end--;
+    fitted = cut(end);
+  }
+  if (fittedLabels.size > 200) fittedLabels.clear(); // renamed sessions leave old titles behind
+  fittedLabels.set(text, fitted);
+  return fitted;
+}
+
 function drawLabel(fish) {
   const a = fish.agent;
   const y = fish.y - fish.len * 0.55;
@@ -205,7 +229,7 @@ function drawLabel(fish) {
   ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
   ctx.shadowBlur = 4;
   ctx.fillStyle = fishColor(a.sessionId, 0, 18);
-  ctx.fillText(a.label, fish.x, y - 10);
+  ctx.fillText(fitText(a.label, LABEL_MAX_WIDTH), fish.x, y - 10);
   ctx.font = '11px "Segoe UI", system-ui, sans-serif';
   ctx.fillStyle = 'rgba(220, 240, 255, 0.75)';
   ctx.fillText(`${tokens(a.contextTokens)} · ${statusText(a.status)}`, fish.x, y + 4);

@@ -388,8 +388,11 @@ public sealed partial class ClaudeCodeSource(
             var host = Host(file.Live?.Entrypoint ?? file.Entrypoint, file.Cwd);
             // T3 Code names its threads itself; show the name its sidebar shows.
             var title = host == T3Host ? _t3Titles.TitleFor(file.SessionId) ?? file.Title : file.Title;
-            var detail = string.Join(" · ", new[] { host, title, file.GitBranch }.Where(s => !string.IsNullOrEmpty(s)));
-            return new AgentDescriptor(file.AgentId, null, file.SessionId, SourceName, project, detail, 0,
+            // The title is what tells sessions apart; the project goes with it once there is one.
+            var label = string.IsNullOrEmpty(title) ? project : title;
+            var where = string.IsNullOrEmpty(title) || file.Cwd is null ? null : project;
+            var detail = string.Join(" · ", new[] { host, where, file.GitBranch }.Where(s => !string.IsNullOrEmpty(s)));
+            return new AgentDescriptor(file.AgentId, null, file.SessionId, SourceName, label, detail, 0,
                 LifetimeManaged: file.Live is not null);
         }
 

@@ -60,6 +60,32 @@ public sealed class T3ThreadTitlesTests : IDisposable
         Assert.False(new T3ThreadTitles(Path.Combine(_dir, "missing.sqlite")).Refresh());
 
     [Fact]
+    public void Session_without_a_title_is_labelled_with_its_project()
+    {
+        var project = Directory.CreateDirectory(Path.Combine(Root, "project")).FullName;
+        File.WriteAllText(Path.Combine(project, $"{Session}.jsonl"), $$$"""
+            {"type":"user","cwd":"D:\\repo","gitBranch":"main","entrypoint":"cli","timestamp":"{{{DateTimeOffset.UtcNow:O}}}","message":{"role":"user","content":"hi"}}
+
+            """);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var registry = new AgentRegistry(Options.Create(new TankOptions()), clock);
+        using var source = new ClaudeCodeSource(registry, Options.Create(new ClaudeCodeOptions { T3StateFile = "" }),
+            new PermissionRequests(), clock, NullLogger<ClaudeCodeSource>.Instance);
+
+        source.Poll([Root]);
+        var agent = registry.Snapshot().Single(a => a.Id == Session);
+        Assert.Equal("repo", agent.Label);
+        Assert.Equal("CLI · main", agent.Detail);
+
+        File.AppendAllText(Path.Combine(project, $"{Session}.jsonl"),
+            $$"""{"type":"ai-title","aiTitle":"Claude's own title","sessionId":"{{Session}}"}""" + "\n");
+        source.Poll([Root]);
+        agent = registry.Snapshot().Single(a => a.Id == Session);
+        Assert.Equal("Claude's own title", agent.Label);
+        Assert.Equal("CLI · repo · main", agent.Detail);
+    }
+
+    [Fact]
     public void T3_session_shows_the_t3_title_and_follows_a_rename()
     {
         AddThread("t1", "Aquarium thread titles", $$"""{"resume":"{{Session}}"}""");
@@ -82,11 +108,15 @@ public sealed class T3ThreadTitlesTests : IDisposable
             NullLogger<ClaudeCodeSource>.Instance);
 
         source.Poll([Root]);
-        Assert.Equal("T3 Code · Aquarium thread titles", registry.Snapshot().Single(a => a.Id == Session).Detail);
+        var agent = registry.Snapshot().Single(a => a.Id == Session);
+        Assert.Equal("Aquarium thread titles", agent.Label);
+        Assert.Equal("T3 Code · repo", agent.Detail);
 
         Execute("update projection_threads set title = 'Renamed in T3' where thread_id = 't1'");
         clock.Advance(TimeSpan.FromSeconds(5));
         source.Poll([Root]);
-        Assert.Equal("T3 Code · Renamed in T3", registry.Snapshot().Single(a => a.Id == Session).Detail);
+        agent = registry.Snapshot().Single(a => a.Id == Session);
+        Assert.Equal("Renamed in T3", agent.Label);
+        Assert.Equal("T3 Code · repo", agent.Detail);
     }
 }
