@@ -214,6 +214,10 @@ public class TranscriptParserTests
     [InlineData(@"D:\GuyVdN\AgentAquarium", "AgentAquarium")]
     [InlineData(@"D:\Euricom\internal\devops\.claude\worktrees\lunch-linux-postgres", "devops")]
     [InlineData(@"C:\Users\guyvd\.t3\worktrees\internal-devops\t3code-462b73a5", "internal-devops")]
+    [InlineData(@"C:\Users\guyvd\.t3\scratch\2026-10-16-why-is-t3-code-not-7ac1156f", "scratch")]
+    [InlineData("/home/me/.t3/scratch/2026-10-16-fix-login-1a2b3c4d/", "scratch")]
+    [InlineData(@"C:\Users\me\.t3\scratch\2026-10-16-fix-login-1a2b3c4d\sub", "scratch")]
+    [InlineData(@"D:\scratch\foo", "foo")]
     [InlineData("/home/me/src/app/", "app")]
     public void Project_name_looks_past_worktree_folders(string cwd, string expected) =>
         Assert.Equal(expected, ClaudeCodeSource.ProjectName(cwd));

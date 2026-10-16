@@ -407,11 +407,16 @@ public sealed partial class ClaudeCodeSource(
 
     /// <summary>
     /// The repo a session works on. Worktree folders have throwaway names, so look past them:
-    /// <c>repo/.claude/worktrees/x</c> → repo; <c>~/.t3/worktrees/repo/x</c> → repo.
+    /// <c>repo/.claude/worktrees/x</c> → repo; <c>~/.t3/worktrees/repo/x</c> → repo. A T3 Code thread
+    /// outside any repo gets a folder of its own: <c>~/.t3/scratch/&lt;date&gt;-&lt;slug&gt;</c> → scratch.
     /// </summary>
     internal static string ProjectName(string cwd)
     {
         var parts = cwd.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries);
+        for (var s = 1; s < parts.Length - 1; s++)
+            if (parts[s].Equals("scratch", StringComparison.OrdinalIgnoreCase)
+                && parts[s - 1].Equals(".t3", StringComparison.OrdinalIgnoreCase))
+                return "scratch";
         var i = Array.FindLastIndex(parts, p => p.Equals("worktrees", StringComparison.OrdinalIgnoreCase));
         if (i > 1 && parts[i - 1] is ".claude" or ".git")
             return parts[i - 2];
