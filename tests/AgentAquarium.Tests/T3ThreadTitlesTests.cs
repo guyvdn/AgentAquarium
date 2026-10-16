@@ -92,7 +92,7 @@ public sealed class T3ThreadTitlesTests : IDisposable
         var cwd = Path.Combine(_dir, ".t3", "worktrees", "repo", "t3code-1234").Replace("\\", "\\\\", StringComparison.Ordinal);
         var project = Directory.CreateDirectory(Path.Combine(Root, "project")).FullName;
         File.WriteAllText(Path.Combine(project, $"{Session}.jsonl"), $$$"""
-            {"type":"user","cwd":"{{{cwd}}}","timestamp":"{{{DateTimeOffset.UtcNow:O}}}","message":{"role":"user","content":"hi"}}
+            {"type":"user","cwd":"{{{cwd}}}","gitBranch":"HEAD","timestamp":"{{{DateTimeOffset.UtcNow:O}}}","message":{"role":"user","content":"hi"}}
             {"type":"ai-title","aiTitle":"Claude's own title","sessionId":"{{{Session}}}"}
 
             """);
