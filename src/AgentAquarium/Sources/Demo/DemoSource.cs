@@ -18,9 +18,20 @@ public sealed class DemoSource(IAgentSink sink, IUsageSink usage, IOptions<DemoO
     // A compressed 5-hour window, so the treasure chest visibly drains and refills.
     private static readonly TimeSpan DemoWindow = TimeSpan.FromMinutes(3);
 
-    private static readonly string[] Projects = ["billing-api", "web-shop", "infra", "mobile-app", "docs-site"];
+    // What a real session shows: its title, then host · project · branch. Short enough to fit above a fish.
+    private static readonly (string Title, string Detail)[] Sessions =
+    [
+        ("Invoice PDF rounding fix", "CLI · billing-api · fix/rounding"),
+        ("Checkout coupon codes", "T3 Code · web-shop · coupons"),
+        ("Postgres failover runbook", "T3 Code · infra · main"),
+        ("Offline sync for orders", "CLI · mobile-app · offline-sync"),
+        ("Search for API reference", "T3 Code · docs-site · search"),
+    ];
+
     private static readonly string[] Tools = ["Read", "Edit", "Bash", "Grep", "Glob", "WebFetch", "Write"];
     private static readonly string[] SubagentTypes = ["Explore", "general-purpose", "Plan", "code-reviewer"];
+    private static readonly string[] SubagentTasks =
+        ["Find rounding call sites", "Review the diff", "Plan the migration", "Map the sync API", "Check test coverage"];
     private static readonly string[] WaitReasons = ["permission prompt", "a question", "plan approval"];
 
     private readonly Random _random = new();
@@ -126,9 +137,10 @@ public sealed class DemoSource(IAgentSink sink, IUsageSink usage, IOptions<DemoO
 
         var sessionId = parent?.SessionId ?? id;
         agent.SessionId = sessionId;
-        var label = parent is null ? Projects[(_next - 1) % Projects.Length] : SubagentTypes[_random.Next(SubagentTypes.Length)];
-        sink.Upsert(new AgentDescriptor(id, parent?.Id, sessionId, "demo", label,
-            parent is null ? "demo session" : "demo subagent task", depth));
+        var (label, detail) = parent is null
+            ? Sessions[(_next - 1) % Sessions.Length]
+            : (SubagentTasks[_random.Next(SubagentTasks.Length)], SubagentTypes[_random.Next(SubagentTypes.Length)]);
+        sink.Upsert(new AgentDescriptor(id, parent?.Id, sessionId, "demo", label, detail, depth));
 
         var now = clock.GetUtcNow();
         sink.Observe(id, new ContextObserved(now, agent.Tokens));

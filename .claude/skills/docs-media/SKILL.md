@@ -7,9 +7,10 @@ description: How to regenerate the README media, docs/screenshot.png and docs/de
 
 `docs/screenshot.png` (1600x900 PNG, ~300 KB) and `docs/demo.gif` (960x540, 12 fps, 9 s, ~4 MB)
 are both shot from the demo source. Retake them whenever the tank gains something a reader should
-see. As of 2026-10-15 that means: the diver with its badge, the chest, amber "needs you", subagent
-schools, a hovered fish's tooltip and its highlighted Schools row, and coins trickling into the
-chest from token spend (the demo emits `SpendObserved`).
+see. As of 2026-10-16 that means: sessions labelled with their titles and subagents with their
+tasks, the diver with its badge, the chest, amber "needs you", subagent schools, a hovered fish's
+tooltip and its highlighted Schools row, and coins trickling into the chest from token spend (the
+demo emits `SpendObserved`).
 
 ## Run it
 
@@ -102,6 +103,10 @@ under about 5 MB; it is downloaded with the README.
 
 ## Traps
 
+- **Demo labels must fit above the fish.** `drawLabel` cuts a label wider than 220 px with "…",
+  and `tank-boot.js` keys `__labels` by the text drawn, while `pick.js` reads the full name from the
+  Schools list. A demo title that gets cut never matches, so its fish is never hovered. Keep the
+  titles in `DemoSource.Sessions` under about 28 characters.
 - **The loop is not seamless**: it jumps from the last frame back to the first. That was accepted.
   A cross-fade or ping-pong would cost size.
 - **Diver over a label.** The diver hovers at the waiting fish and can cover its label. Retake if it

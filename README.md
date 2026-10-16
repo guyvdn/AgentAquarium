@@ -19,9 +19,11 @@ The treasure chest on the sand is your plan's **5-hour limit**: the gold is what
 
 The diver is **you**. It swims to whichever agent has waited on you longest, agents blocked mid-turn before ones that merely finished, and climbs back up the boat's ladder when nobody waits. The badge over its head counts who is waiting, amber when one of them is blocked; hover it for the list with how long each has waited. "Blocked" comes from Claude Code's live-session registry (`status: "waiting"`, interactive CLI only) and, for SDK hosts such as T3 Code, from an `AskUserQuestion` or `ExitPlanMode` still unanswered in the transcript. A permission prompt in an SDK host leaves no trace in either: install the plugin below to see those too. Without it, such a session shows as working until it stalls.
 
-Hover a fish for its context, status, last tool, tool calls, errors and compactions. The **Schools** list on the right mirrors the tank: hovering a row lights up its fish, and hovering a fish lights up its row.
+A session's fish is labelled with its title: Claude Code's own, or for T3 Code the title in its sidebar (see `T3StateFile` below), cut short with "…" when it is long. A session without a title yet shows its repo.
 
-![Demo sessions: the diver at billing-api, which needs you, the chest at 27% left, and the hovered infra fish with its tooltip and highlighted row](docs/screenshot.png)
+Hover a fish for its context, status, last tool, tool calls, errors and compactions. The **Schools** list on the right mirrors the tank: each row shows the label, with where it runs below it (host · repo · branch, such as `T3 Code · web-shop · coupons`). A subagent's row shows its task, with its type below. Hovering a row lights up its fish, and hovering a fish lights up its row.
+
+![Demo sessions labelled with their titles: the diver at "Checkout coupon codes", which needs you, its subagents listed by task, the chest at 72% left, and the hovered "Postgres failover runbook" fish with its tooltip and highlighted row](docs/screenshot.png)
 
 ## Run
 
