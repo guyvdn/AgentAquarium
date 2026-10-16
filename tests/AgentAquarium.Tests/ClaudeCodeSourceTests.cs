@@ -32,6 +32,24 @@ public sealed class ClaudeCodeSourceTests : IDisposable
     private string Stamp => (_clock.GetUtcNow() - TimeSpan.FromMinutes(1)).ToString("O");
 
     [Fact]
+    public void Subagent_is_labelled_with_its_task_and_typed_below()
+    {
+        var project = Directory.CreateDirectory(Path.Combine(_root, "project")).FullName;
+        var subagents = Directory.CreateDirectory(Path.Combine(project, Session, "subagents")).FullName;
+        File.WriteAllText(Path.Combine(project, $"{Session}.jsonl"), "");
+        File.WriteAllText(Path.Combine(subagents, "agent-a1.meta.json"),
+            """{"agentType":"general-purpose","description":"Review deck skill changes","toolUseId":"toolu_spawn","spawnDepth":1}""");
+        File.WriteAllText(Path.Combine(subagents, "agent-a1.jsonl"),
+            $$$"""{"type":"user","timestamp":"{{{Stamp}}}","message":{"role":"user","content":"go"}}""" + "\n");
+
+        _source.Poll([_root]);
+
+        var agent = _registry.Snapshot().Single(a => a.Id == $"{Session}/a1");
+        Assert.Equal("Review deck skill changes", agent.Label);
+        Assert.Equal("general-purpose", agent.Detail);
+    }
+
+    [Fact]
     public void Finished_subagent_read_before_its_parent_does_not_come_back()
     {
         var project = Directory.CreateDirectory(Path.Combine(_root, "project")).FullName;

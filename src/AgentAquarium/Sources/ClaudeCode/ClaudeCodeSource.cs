@@ -401,8 +401,10 @@ public sealed partial class ClaudeCodeSource(
         string? owner = null;
         file.ParentResolved = meta?.ToolUseId is { } toolUseId && _toolUseOwner.TryGetValue(toolUseId, out owner);
         var parent = file.ParentResolved ? owner! : file.SessionId;
-        return new AgentDescriptor(file.AgentId, parent, file.SessionId, SourceName,
-            meta?.AgentType ?? "subagent", meta?.Description, meta?.SpawnDepth ?? 1);
+        // Like a session's title, the task tells subagents apart; most share a type.
+        var type = meta?.AgentType ?? "subagent";
+        var (name, below) = string.IsNullOrEmpty(meta?.Description) ? (type, null) : (meta.Description, type);
+        return new AgentDescriptor(file.AgentId, parent, file.SessionId, SourceName, name, below, meta?.SpawnDepth ?? 1);
     }
 
     /// <summary>
