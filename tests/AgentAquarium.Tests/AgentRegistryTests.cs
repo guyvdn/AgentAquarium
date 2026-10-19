@@ -45,6 +45,16 @@ public class AgentRegistryTests
     }
 
     [Fact]
+    public void Silent_working_agent_with_work_in_flight_stays_working()
+    {
+        _registry.Upsert(new AgentDescriptor("a", null, "a", "test", "s", LifetimeManaged: true, WorkInFlight: true));
+        _registry.Observe("a", new StatusObserved(Now, AgentStatus.Working));
+        _clock.Advance(TimeSpan.FromMinutes(20));
+
+        Assert.Equal(AgentStatus.Working, Assert.Single(_registry.Snapshot()).Status);
+    }
+
+    [Fact]
     public void Status_since_is_when_the_status_changed_not_when_it_was_repeated()
     {
         var asked = Now - TimeSpan.FromMinutes(10);

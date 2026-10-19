@@ -280,7 +280,13 @@ public sealed partial class ClaudeCodeSource(
     private void ReportLiveStatus(TrackedFile file)
     {
         if (PruneBackground(file))
+        {
             file.ReportedLiveStatus = null;
+            // No more work in flight, perhaps. Only for a live session: the tank never forgets one, so
+            // this cannot bring back a fish it has let go.
+            if (file.Live is not null && file.Tail.Offset > 0)
+                sink.Upsert(Describe(file));
+        }
         // Without the registry, no other report would say the turn is the user's now. Not only after a
         // prune here: reading new lines may have pruned the last task already.
         if (file.Live is null && file.ShowsBackground && file.Background.Count == 0 && file.Tail.Offset > 0)
@@ -447,7 +453,7 @@ public sealed partial class ClaudeCodeSource(
             var branch = file.GitBranch is "HEAD" ? null : file.GitBranch;
             var detail = string.Join(" · ", new[] { host, where, branch }.Where(s => !string.IsNullOrEmpty(s)));
             return new AgentDescriptor(file.AgentId, null, file.SessionId, SourceName, label, detail, 0,
-                LifetimeManaged: file.Live is not null);
+                LifetimeManaged: file.Live is not null, WorkInFlight: WorkInFlight(file));
         }
 
         file.Meta ??= SubagentMeta.TryRead(file.MetaPath!);
@@ -458,8 +464,11 @@ public sealed partial class ClaudeCodeSource(
         // Like a session's title, the task tells subagents apart; most share a type.
         var type = meta?.AgentType ?? "subagent";
         var (name, below) = string.IsNullOrEmpty(meta?.Description) ? (type, null) : (meta.Description, type);
-        return new AgentDescriptor(file.AgentId, parent, file.SessionId, SourceName, name, below, meta?.SpawnDepth ?? 1);
+        return new AgentDescriptor(file.AgentId, parent, file.SessionId, SourceName, name, below, meta?.SpawnDepth ?? 1,
+            WorkInFlight: WorkInFlight(file));
     }
+
+    private static bool WorkInFlight(TrackedFile file) => file.OpenToolUses.Count > 0 || file.Background.Count > 0;
 
     /// <summary>
     /// The repo a session works on. Worktree folders have throwaway names, so look past them:

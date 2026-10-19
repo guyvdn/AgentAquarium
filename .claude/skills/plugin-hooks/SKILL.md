@@ -6,8 +6,9 @@ description: How the Agent Aquarium Claude Code plugin and its PermissionRequest
 # Plugin hooks
 
 The plugin exists for SDK hosts such as T3 Code. A permission prompt there leaves no trace in the
-transcript or the live-session registry, so without the hook the agent shows as Working until it
-stalls. The user-facing description is in `README.md` under *Plugin: permission prompts in SDK hosts*.
+transcript or the live-session registry, so without the hook the agent shows as Working until the
+prompt is answered (its tool call is open, so it never stalls to Idle). The user-facing description
+is in `README.md` under *Plugin: permission prompts in SDK hosts*.
 
 ## How the permission hook works
 

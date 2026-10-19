@@ -5,7 +5,7 @@ namespace AgentAquarium.Tank;
 
 public sealed class TankOptions
 {
-    /// <summary>A Working agent that has been silent this long is shown as Idle.</summary>
+    /// <summary>A Working agent that has been silent this long, with no work in flight, is shown as Idle.</summary>
     public TimeSpan StallAfter { get; set; } = TimeSpan.FromMinutes(5);
 
     /// <summary>An agent silent this long leaves the tank.</summary>
@@ -155,7 +155,7 @@ public sealed class AgentRegistry(IOptions<TankOptions> options, TimeProvider cl
             while (RecentEvents.TryPeek(out var t) && now - t > options.ActivityWindow)
                 RecentEvents.Dequeue();
 
-            var stalled = Status == AgentStatus.Working && now - LastSeen > options.StallAfter;
+            var stalled = Status == AgentStatus.Working && !Descriptor.WorkInFlight && now - LastSeen > options.StallAfter;
             var status = stalled ? AgentStatus.Idle : Status;
             var since = stalled ? LastSeen : StatusSince;
 

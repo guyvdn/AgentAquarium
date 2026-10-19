@@ -27,6 +27,10 @@ public enum AgentStatus
 /// The source knows when this agent really ends and will call <see cref="IAgentSink.Remove"/>;
 /// the tank must not forget it just because it has been quiet.
 /// </param>
+/// <param name="WorkInFlight">
+/// The source can see work still running for this agent (a tool call without its result, background
+/// work), so a silent Working agent is busy, not stalled: a build or a test run can take many minutes.
+/// </param>
 public sealed record AgentDescriptor(
     string Id,
     string? ParentId,
@@ -35,7 +39,8 @@ public sealed record AgentDescriptor(
     string Label,
     string? Detail = null,
     int Depth = 0,
-    bool LifetimeManaged = false);
+    bool LifetimeManaged = false,
+    bool WorkInFlight = false);
 
 public abstract record AgentObservation(DateTimeOffset At);
 

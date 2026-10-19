@@ -76,6 +76,31 @@ public sealed class ClaudeCodeSourceTests : IDisposable
     }
 
     [Fact]
+    public void A_long_tool_call_is_work_not_a_stall()
+    {
+        var project = Directory.CreateDirectory(Path.Combine(_root, "project")).FullName;
+        var main = Path.Combine(project, $"{Session}.jsonl");
+        File.WriteAllText(main, $$$"""
+            {"type":"assistant","timestamp":"{{{Stamp}}}","message":{"stop_reason":"tool_use","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"dotnet test"}}]}}
+
+            """);
+
+        _source.Poll([_root]);
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        _source.Poll([_root]);
+        Assert.Equal(AgentStatus.Working, _registry.Snapshot().Single(a => a.Id == Session).Status);
+
+        // Once the result is in, silence means it stalled again.
+        File.AppendAllText(main, $$$"""
+            {"type":"user","timestamp":"{{{Stamp}}}","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"passed"}]}}
+
+            """);
+        _source.Poll([_root]);
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        Assert.Equal(AgentStatus.Idle, _registry.Snapshot().Single(a => a.Id == Session).Status);
+    }
+
+    [Fact]
     public void Subagent_is_labelled_with_its_task_and_typed_below()
     {
         var project = Directory.CreateDirectory(Path.Combine(_root, "project")).FullName;
