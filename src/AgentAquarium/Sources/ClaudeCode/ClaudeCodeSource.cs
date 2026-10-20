@@ -444,9 +444,13 @@ public sealed partial class ClaudeCodeSource(
         if (!file.IsSubagent)
         {
             var project = file.Cwd is null ? file.SessionId[..Math.Min(8, file.SessionId.Length)] : ProjectName(file.Cwd);
-            var host = Host(file.Live?.Entrypoint ?? file.Entrypoint, file.Cwd);
-            // T3 Code names its threads itself; show the name its sidebar shows.
-            var title = host == T3Host ? _t3Titles.TitleFor(file.SessionId) ?? file.Title : file.Title;
+            // T3 Code names its threads itself; show the name its sidebar shows. A session T3 Code knows is its own
+            // wherever it runs: its worktrees folder is a setting, and a thread can run in the project's own checkout.
+            // Unless it was resumed in a terminal (claude --resume): then it runs in the CLI, under T3 Code's title.
+            var t3Title = _t3Titles.TitleFor(file.SessionId);
+            var entrypoint = file.Live?.Entrypoint ?? file.Entrypoint;
+            var host = t3Title is null || entrypoint == "cli" ? Host(entrypoint, file.Cwd) : T3Host;
+            var title = t3Title ?? file.Title;
             // The title is what tells sessions apart; the project goes with it once there is one.
             var label = string.IsNullOrEmpty(title) ? project : title;
             var where = string.IsNullOrEmpty(title) || file.Cwd is null ? null : project;
@@ -491,7 +495,10 @@ public sealed partial class ClaudeCodeSource(
         return parts.Length > 0 ? parts[^1] : cwd;
     }
 
-    /// <summary>What the session runs in. <c>sdk-ts</c> is any Agent SDK host; T3 Code is recognised by its worktree folder.</summary>
+    /// <summary>
+    /// What the session runs in. <c>sdk-ts</c> is any Agent SDK host; T3 Code is recognised here by its default
+    /// worktree folder. <see cref="Describe"/> also knows its sessions by their title, wherever they run.
+    /// </summary>
     internal static string? Host(string? entrypoint, string? cwd) => entrypoint switch
     {
         _ when cwd?.Contains($"{Path.DirectorySeparatorChar}.t3{Path.DirectorySeparatorChar}", StringComparison.Ordinal) == true

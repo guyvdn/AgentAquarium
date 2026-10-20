@@ -148,4 +148,28 @@ public sealed class T3ThreadTitlesTests : IDisposable
         Assert.Equal("Renamed in T3", agent.Label);
         Assert.Equal("T3 Code · repo", agent.Detail);
     }
+
+    [Fact]
+    public void T3_session_outside_the_default_worktrees_folder_is_known_by_its_title()
+    {
+        AddThread("t1", "Aquarium thread titles", $$"""{"resume":"{{Session}}"}""");
+        // T3 Code's worktreesDirectory setting moves them anywhere.
+        var cwd = Path.Combine(_dir, "T3", "Worktrees", "repo", "t3-1234").Replace("\\", "\\\\", StringComparison.Ordinal);
+        var project = Directory.CreateDirectory(Path.Combine(Root, "project")).FullName;
+        File.WriteAllText(Path.Combine(project, $"{Session}.jsonl"), $$$"""
+            {"type":"user","cwd":"{{{cwd}}}","gitBranch":"t3/aquarium","entrypoint":"sdk-ts","timestamp":"{{{DateTimeOffset.UtcNow:O}}}","message":{"role":"user","content":"hi"}}
+            {"type":"ai-title","aiTitle":"Claude's own title","sessionId":"{{{Session}}}"}
+
+            """);
+
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var registry = new AgentRegistry(Options.Create(new TankOptions()), clock);
+        using var source = new ClaudeCodeSource(registry, Options.Create(new ClaudeCodeOptions { T3StateFile = StateFile }),
+            new PermissionRequests(), clock, NullLogger<ClaudeCodeSource>.Instance);
+
+        source.Poll([Root]);
+        var agent = registry.Snapshot().Single(a => a.Id == Session);
+        Assert.Equal("Aquarium thread titles", agent.Label);
+        Assert.Equal("T3 Code · repo · t3/aquarium", agent.Detail);
+    }
 }
