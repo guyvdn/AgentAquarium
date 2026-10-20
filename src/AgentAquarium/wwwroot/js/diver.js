@@ -274,8 +274,13 @@ export class Diver {
 /** Blocked mid-turn on you, before finished and waiting for your next move; longest wait first. */
 function waitingOnYou(fishes) {
   return [...fishes.values()]
-    .filter(f => !f.leaving && !f.done && (blocked(f) || (f.isRoot && f.agent.status === 'Idle')))
+    .filter(waitsOnYou)
     .sort((a, b) => blocked(b) - blocked(a) || time(a.agent.statusSince) - time(b.agent.statusSince));
+}
+
+/** Whether the diver will come for this fish. The Schools panel pulses the same ones. */
+export function waitsOnYou(fish) {
+  return !fish.leaving && !fish.done && (blocked(fish) || (fish.isRoot && fish.agent.status === 'Idle'));
 }
 
 function blocked(fish) {

@@ -112,13 +112,14 @@ canvas#tank {
 }
 
 .panel .swatch {
+  background: var(--swatch);
   width: 12px;
   height: 12px;
   border-radius: 50%;
 }
 
-/* Needs you: a slow amber glow, in the spirit of the waiting fish. The fill stays the session's
-   colour. main.js sets the duration and phase inline, so the pulse survives each panel rebuild. */
+/* Whoever the diver comes for glows slowly in its own colour. main.js sets the duration and
+   phase inline, so the pulse survives each panel rebuild. */
 .panel .swatch.pulse {
   animation: swatch-pulse ease-in-out infinite;
 }
@@ -126,20 +127,24 @@ canvas#tank {
 @keyframes swatch-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--wait) 50%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--swatch) 50%, transparent);
   }
 
   50% {
     box-shadow:
-      0 0 0 2px var(--wait),
-      0 0 10px 3px var(--wait);
+      0 0 0 2px var(--swatch),
+      0 0 10px 3px var(--swatch);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .panel .swatch.pulse {
     animation: none;
-    box-shadow: 0 0 0 2px var(--wait);
+
+    /* A gap, then a ring: a ring touching the fill would only read as a bigger dot. */
+    box-shadow:
+      0 0 0 1.5px #031524,
+      0 0 0 3px var(--swatch);
   }
 }
 

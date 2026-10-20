@@ -22,7 +22,7 @@ The diver is **you**. It swims to whichever agent has waited on you longest, age
 
 A session's fish is labelled with its title: Claude Code's own, or for T3 Code the title in its sidebar (see `T3StateFile` below), cut short with "…" when it is long. A session without a title yet shows its repo.
 
-Hover a fish for its context, status, last tool, tool calls, errors and compactions. The **Schools** list on the right mirrors the tank: each row shows the label, with where it runs below it (host · repo · branch, such as `T3 Code · web-shop · coupons`). A subagent's row shows its task, with its type below. Hovering a row lights up its fish, and hovering a fish lights up its row.
+Hover a fish for its context, status, last tool, tool calls, errors and compactions. The **Schools** list on the right mirrors the tank: each row shows the label, with where it runs below it (host · repo · branch, such as `T3 Code · web-shop · coupons`). A subagent's row shows its task, with its type below. The dot of every session the diver would come for glows slowly in its own colour. Hovering a row lights up its fish, and hovering a fish lights up its row.
 
 ![Demo sessions labelled with their titles: the diver at "Checkout coupon codes", which needs you, its subagents listed by task, the chest at 72% left, and the hovered "Postgres failover runbook" fish with its tooltip and highlighted row](docs/screenshot.png)
 

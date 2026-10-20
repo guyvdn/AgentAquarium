@@ -1,7 +1,7 @@
 import { Fish } from './fish.js';
 import { Scenery, Bubbles } from './scenery.js';
 import { Chest } from './chest.js';
-import { Diver } from './diver.js';
+import { Diver, waitsOnYou } from './diver.js';
 import { fishColor } from './colors.js';
 
 const STREAM_URL = '/api/agents/stream';
@@ -266,14 +266,16 @@ function markHoveredRow(id) {
 function row(a, depth) {
   const detail = a.detail ? `<small>${escapeHtml(a.detail)}</small>` : '';
   const classes = [depth && 'child', a.id === hoverId && 'hovered'].filter(Boolean).join(' ');
-  // The panel is rebuilt on every snapshot, which restarts CSS animations; a delay taken from the
-  // clock keeps every pulsing swatch on one phase across rebuilds instead of jumping back to 0.
-  const waiting = a.status === 'Waiting';
-  const swatchStyle = `background:${fishColor(a.sessionId, a.depth)}${
-    waiting ? `;animation-duration:${PULSE_MS}ms;animation-delay:-${Math.round(performance.now() % PULSE_MS)}ms` : ''
+  // Pulse the sessions the diver comes for. The panel is rebuilt on every snapshot, which restarts
+  // CSS animations; a delay taken from the clock keeps every pulsing swatch on one phase across
+  // rebuilds instead of jumping back to 0.
+  const fish = world.fish.get(a.id);
+  const pulse = Boolean(fish && waitsOnYou(fish));
+  const swatchStyle = `--swatch:${fishColor(a.sessionId, a.depth)}${
+    pulse ? `;animation-duration:${PULSE_MS}ms;animation-delay:-${Math.round(performance.now() % PULSE_MS)}ms` : ''
   }`;
   return `<li class="${classes}" style="--depth:${depth}" data-id="${escapeHtml(a.id)}">
-    <span class="swatch${waiting ? ' pulse' : ''}" style="${swatchStyle}"></span>
+    <span class="swatch${pulse ? ' pulse' : ''}" style="${swatchStyle}"></span>
     <span class="name">${escapeHtml(a.label)}${detail}</span>
     <span class="meta ${STATUS_CLASS.get(a.status) ?? ''}">${tokens(a.contextTokens)}<br>${escapeHtml(statusText(a.status))}</span>
   </li>`;
