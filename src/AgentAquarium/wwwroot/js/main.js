@@ -10,6 +10,7 @@ const SURFACE = 60; // px kept clear above the fish, under the title
 const MAX_DT = 0.05; // s; a backgrounded tab must not teleport the fish when it comes back
 const TOOLTIP_OFFSET = 14;
 const LABEL_MAX_WIDTH = 220; // px; session titles can be long
+const PULSE_MS = 2400; // one breath of the "needs you" glow on a Schools swatch
 const TOOLTIP_ROOM = 330; // the tooltip's max-width plus a margin, so it never runs off the right edge
 
 const canvas = document.getElementById('tank');
@@ -265,8 +266,14 @@ function markHoveredRow(id) {
 function row(a, depth) {
   const detail = a.detail ? `<small>${escapeHtml(a.detail)}</small>` : '';
   const classes = [depth && 'child', a.id === hoverId && 'hovered'].filter(Boolean).join(' ');
+  // The panel is rebuilt on every snapshot, which restarts CSS animations; a delay taken from the
+  // clock keeps every pulsing swatch on one phase across rebuilds instead of jumping back to 0.
+  const waiting = a.status === 'Waiting';
+  const swatchStyle = `background:${fishColor(a.sessionId, a.depth)}${
+    waiting ? `;animation-duration:${PULSE_MS}ms;animation-delay:-${Math.round(performance.now() % PULSE_MS)}ms` : ''
+  }`;
   return `<li class="${classes}" style="--depth:${depth}" data-id="${escapeHtml(a.id)}">
-    <span class="swatch" style="background:${fishColor(a.sessionId, a.depth)}"></span>
+    <span class="swatch${waiting ? ' pulse' : ''}" style="${swatchStyle}"></span>
     <span class="name">${escapeHtml(a.label)}${detail}</span>
     <span class="meta ${STATUS_CLASS.get(a.status) ?? ''}">${tokens(a.contextTokens)}<br>${escapeHtml(statusText(a.status))}</span>
   </li>`;

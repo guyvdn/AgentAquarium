@@ -117,6 +117,32 @@ canvas#tank {
   border-radius: 50%;
 }
 
+/* Needs you: a slow amber glow, in the spirit of the waiting fish. The fill stays the session's
+   colour. main.js sets the duration and phase inline, so the pulse survives each panel rebuild. */
+.panel .swatch.pulse {
+  animation: swatch-pulse ease-in-out infinite;
+}
+
+@keyframes swatch-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--wait) 50%, transparent);
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 2px var(--wait),
+      0 0 10px 3px var(--wait);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel .swatch.pulse {
+    animation: none;
+    box-shadow: 0 0 0 2px var(--wait);
+  }
+}
+
 .panel .name {
   overflow: hidden;
   white-space: nowrap;
