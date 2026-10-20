@@ -5,6 +5,10 @@ See `README.md` for what the app does, how to run it, and how it is built.
 ## Shipping changes
 
 - **No pull requests.** Commit and push straight to `main`.
+- **A change to what the tank or HUD shows waits until the user has confirmed it in the running
+  app** before it is committed. Start the demo as the `docs-media` skill does, on a spare port such
+  as 5198, never 5180, and built to a temp folder (`dotnet build -o`) so it does not lock `bin/`.
+- **Nothing is pushed while a question to the user is still open.**
 - **Before every push to `main`, have a fresh subagent review the diff** for bugs, races and
   convention drift, and fix what it finds first. Say what the review found, even when it found
   nothing.
