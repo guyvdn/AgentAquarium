@@ -28,7 +28,8 @@ public sealed class ClaudeCodeOptions
     public TimeSpan UsagePollInterval { get; set; } = TimeSpan.FromSeconds(10);
 
     /// <summary>
-    /// T3 Code's state database, for the titles it gives its threads. Defaults to ~/.t3/userdata/state.sqlite.
+    /// T3 Code's state database, for the titles it gives its threads. Defaults to ~/.t3/userdata/statev2.sqlite, or
+    /// state.sqlite from before T3 Code's 2026-10-20 update.
     /// Empty turns it off, and T3 Code sessions show Claude's title.
     /// </summary>
     public string? T3StateFile { get; set; }
@@ -81,7 +82,7 @@ public sealed partial class ClaudeCodeSource(
     /// <summary>Permission prompts from the hook whose tool call has not been read yet.</summary>
     private readonly List<PermissionRequest> _permissionRequests = [];
 
-    private readonly T3ThreadTitles _t3Titles = new(options.Value.T3StateFile ?? T3ThreadTitles.DefaultStateFile);
+    private readonly T3ThreadTitles _t3Titles = new(options.Value.T3StateFile);
     private DateTimeOffset? _t3TitlesReadAt;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

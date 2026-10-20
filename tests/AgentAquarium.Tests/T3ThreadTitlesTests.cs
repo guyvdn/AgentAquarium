@@ -56,6 +56,35 @@ public sealed class T3ThreadTitlesTests : IDisposable
     }
 
     [Fact]
+    public void V2_titles_come_from_the_v2_threads_for_imported_and_new_sessions()
+    {
+        Execute($$$"""
+            create table orchestration_v2_projection_threads (thread_id text primary key, title text not null, updated_at text, deleted_at text);
+            create table orchestration_v2_projection_provider_threads (provider_thread_id text primary key, thread_id text, provider text, driver text, updated_at text, payload_json text);
+            insert into provider_session_runtime values ('old', '{"resume":"imported-session"}');
+            insert into projection_threads values ('old', 'Stale legacy title', '2026-10-16', null);
+            insert into provider_session_runtime values ('resumed', '{"resume":"{{{Session}}}"}');
+            insert into orchestration_v2_projection_threads values ('resumed', 'Same session, older thread', '2026-10-20', null);
+            insert into orchestration_v2_projection_threads values ('old', 'Imported thread', '2026-10-20', null);
+            insert into orchestration_v2_projection_threads values ('new', 'Thread started after the update', '2026-10-20', null);
+            insert into orchestration_v2_projection_threads values ('gone', 'Deleted thread', '2026-10-20', '2026-10-20');
+            """);
+        Execute($$$"""
+            insert into orchestration_v2_projection_provider_threads values
+              ('p1', 'new', 'claudeAgent', null, '2026-10-20', '{"nativeThreadRef":{"driver":"claudeAgent","nativeId":"{{{Session}}}"}}'),
+              ('p2', 'gone', 'claudeAgent', 'claudeAgent', '2026-10-20', '{"nativeThreadRef":{"nativeId":"deleted-session"}}'),
+              ('p3', 'old', 'claudeAgent', 'claudeAgent', '2026-10-20', '{"nativeThreadRef":null}');
+            """);
+        var titles = new T3ThreadTitles(StateFile);
+
+        Assert.True(titles.Refresh());
+
+        Assert.Equal("Thread started after the update", titles.TitleFor(Session));
+        Assert.Equal("Imported thread", titles.TitleFor("imported-session"));
+        Assert.Null(titles.TitleFor("deleted-session"));
+    }
+
+    [Fact]
     public void Missing_database_reads_nothing() =>
         Assert.False(new T3ThreadTitles(Path.Combine(_dir, "missing.sqlite")).Refresh());
 
