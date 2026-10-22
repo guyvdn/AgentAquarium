@@ -1,4 +1,5 @@
-// Reads the Schools list and points window.__follow at the working root with the most subagents.
+// Reads the Schools list and finds the working root with the most subagents; with window.__hover
+// set (HOVER=1), points window.__follow at it so its tooltip shows.
 // Returns "rows|needsYou|followed" for capture.sh to decide whether the scene is worth shooting.
 (() => {
   const rows = [...document.querySelectorAll('#schools li[data-id]')];
@@ -17,7 +18,7 @@
       best = r.name;
       most = r.kids;
     }
-  window.__follow = best;
+  window.__follow = window.__hover ? best : null;
   const needsYou = (document.getElementById('schools')?.innerText ?? '').includes('needs you');
   return `${rows.length}|${needsYou}|${best}`;
 })();

@@ -1,4 +1,4 @@
-// Boots the tank inside an already-open same-origin page (e.g. /styles.css) with three patches,
+// Boots the tank inside an already-open same-origin page (e.g. /styles.css) with four patches,
 // then document.write()s index.html so main.js starts under them. The global object survives
 // document.open(), so the patches stay in force.
 //
@@ -8,9 +8,11 @@
 // 2. Paced server updates: SSE events received while frozen are queued with their real arrival time
 //    and delivered when virtual time catches up. Without this the demo's real-time tool calls pile
 //    up against the slowed clock and the tank fills with bubbles.
-// 3. Pointer on a moving fish: fillText is wrapped to record where each root's "tokens · status"
-//    label was drawn, and every frame a mousemove is dispatched just below the label of
-//    window.__follow, so the tooltip and the highlighted Schools row stay up.
+// 3. CSS animations on the same clock: while frozen, each animation's currentTime is set from virtual
+//    time, so the Schools swatch pulse keeps its real speed instead of playing ~28x too fast.
+// 4. Pointer on a moving fish (only with HOVER=1): fillText is wrapped to record where each root's
+//    "tokens · status" label was drawn, and every frame a mousemove is dispatched just below the
+//    label of window.__follow, so the tooltip and the highlighted Schools row stay up.
 (async () => {
   const html = await (await fetch('/')).text();
   const nativeRaf = window.requestAnimationFrame.bind(window);
@@ -47,7 +49,20 @@
     S.frozen = true;
     S.vt = S.vt0 = S.rt0 = nativeNow();
     S.d0 = nativeDateNow();
+    // Animations running already carry on from where they are, rather than restarting at 0.
+    for (const a of document.getAnimations()) born.set(a, S.vt - (a.currentTime ?? 0));
+    syncAnimations();
     return 'frozen';
+  };
+  // Virtual time each CSS animation was first seen at. main.js recreates the swatch pulses on every
+  // panel rebuild with a delay taken from performance.now, so time since creation keeps the phase.
+  const born = new WeakMap();
+  const syncAnimations = () => {
+    for (const a of document.getAnimations()) {
+      if (!born.has(a)) born.set(a, S.vt);
+      a.pause();
+      a.currentTime = S.vt - born.get(a);
+    }
   };
   // ms defaults to 1/30 s: main.js caps a frame at 50 ms, so bigger steps would slow the motion.
   window.__step = (n = 1, ms = 1000 / 30) => {
@@ -62,6 +77,7 @@
       S.queue = [];
       for (const cb of q) cb(S.vt);
     }
+    syncAnimations();
     return S.pending.length;
   };
 

@@ -7,10 +7,11 @@ description: How to regenerate the README media, docs/screenshot.png and docs/de
 
 `docs/screenshot.png` (1600x900 PNG, ~300 KB) and `docs/demo.gif` (960x540, 12 fps, 9 s, ~4 MB)
 are both shot from the demo source. Retake them whenever the tank gains something a reader should
-see. As of 2026-10-16 that means: sessions labelled with their titles and subagents with their
-tasks, the diver with its badge, the chest, amber "needs you", subagent schools, a hovered fish's
-tooltip and its highlighted Schools row, and coins trickling into the chest from token spend (the
-demo emits `SpendObserved`).
+see. As of 2026-10-22 that means: sessions labelled with their titles and subagents with their
+tasks, the diver with its badge, the chest, amber "needs you", subagent schools, the slow glow on
+the Schools dots of the sessions the diver comes for, and coins trickling into the chest from token
+spend (the demo emits `SpendObserved`). No fish is hovered: the user found the tooltip distracting
+in the README media (2026-10-22). `HOVER=1` brings it back, with its highlighted Schools row.
 
 ## Run it
 
@@ -39,7 +40,7 @@ cp "$TEMP/aq-media/screenshot.png" "$TEMP/aq-media/demo.gif" docs/
 | File           | What it does                                                                                  |
 | -------------- | --------------------------------------------------------------------------------------------- |
 | `capture.sh`   | Builds, runs the demo, waits for a good scene, shoots the still and the frames, makes the GIF |
-| `tank-boot.js` | Boots the tank with a pausable clock, paced server updates and pointer-follow                 |
+| `tank-boot.js` | Boots the tank with a pausable clock, paced server updates and (`HOVER=1`) pointer-follow     |
 | `pick.js`      | Reads the Schools list, picks the fish to hover, reports whether the scene is ready           |
 
 ## How it works, and why
@@ -54,14 +55,14 @@ cp "$TEMP/aq-media/screenshot.png" "$TEMP/aq-media/demo.gif" docs/
   all of these hold at once:
   - the list says "needs you", so the diver is out and the fish is amber;
   - the list has 7-16 rows: schools with subagents, but still readable;
-  - there is a working root to hover;
+  - with `HOVER=1`, there is a working root to hover;
   - `/api/usage` reports `fiveHour.usedPercent` < 45, so the chest has gold.
 
   The demo's 5-hour window lasts only 3 minutes, so the chest drains and refills about every 3
   minutes. "needs you" comes and goes in under a minute. A failed `pick.js` eval counts as a bad
   poll and does not stop the run.
 
-- **Holding the pointer on a moving fish.** `main.js` keeps the fish in module scope, which a page
+- **Holding the pointer on a moving fish** (`HOVER=1` only). `main.js` keeps the fish in module scope, which a page
   script can't reach. So `tank-boot.js` wraps `CanvasRenderingContext2D.prototype.fillText` and
   records where each root's `tokens · status` line was drawn, since `drawLabel` draws it right after
   the name. That line is at `fish.y - 0.55 x length + 4`. Every frame the script dispatches a
@@ -77,6 +78,11 @@ cp "$TEMP/aq-media/screenshot.png" "$TEMP/aq-media/demo.gif" docs/
     would be clipped and slow the motion.
   - `Date.now` has to be virtual too. Otherwise the chest's reset time passes in real time
     mid-capture and it greys out as "reset · awaiting update".
+  - CSS animations have to follow it as well. They run on the real clock, so the Schools swatch
+    pulse played about 28x too fast in the GIF (2026-10-22) and looked like frantic blinking. Each
+    `__step` pauses every animation and sets its `currentTime` to the virtual time since it was
+    first seen; `main.js` recreates the pulses on each panel rebuild with a clock-derived delay, so
+    that keeps their phase.
 - **Pacing server updates.** If the clock is paused and the SSE stream isn't, the demo's real-time
   tool calls pile up against a clock running about 28x slower, and the tank fills with bubbles.
   `tank-boot.js` therefore replaces `EventSource` with a wrapper. While frozen, the wrapper queues

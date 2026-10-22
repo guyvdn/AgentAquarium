@@ -4,7 +4,8 @@
 # Usage, from the repo root:  .claude/skills/docs-media/capture.sh [out-dir]
 # Writes screenshot.png, demo.gif, build.log and server.log to out-dir (default $TEMP/aq-media);
 # copying the media into docs/ is up to you. The build also refreshes the repo's (ignored) obj/.
-# Env: PORT (default 5198, never 5180), FRAMES (135 = 9 s at 15 fps), SCENE_POLLS (150, ~3.5 s each).
+# Env: PORT (default 5198, never 5180), FRAMES (135 = 9 s at 15 fps), SCENE_POLLS (150, ~3.5 s each),
+# HOVER (1 = hover a working fish so its tooltip shows; default 0).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,6 +13,7 @@ REPO="$(cd "$HERE/../../.." && pwd)"
 PORT="${PORT:-5198}"
 FRAMES="${FRAMES:-135}"
 SCENE_POLLS="${SCENE_POLLS:-150}"
+HOVER="${HOVER:-0}"
 URL="http://localhost:$PORT"
 # Git Bash rewrites arguments that look like paths ("//..." in JS, too) for native programs.
 AB=(env MSYS_NO_PATHCONV=1 agent-browser --session "aq-media-$$")
@@ -76,24 +78,25 @@ fi
 "${AB[@]}" set viewport 1600 900 >/dev/null
 "${AB[@]}" open "$URL/styles.css" >/dev/null # any same-origin page; tank-boot.js replaces it
 "${AB[@]}" eval "$(cat "$HERE/tank-boot.js")" >/dev/null
+if [ "$HOVER" = 1 ]; then "${AB[@]}" eval "window.__hover = true" >/dev/null; fi
 "${AB[@]}" wait 20000 >/dev/null # let the fish spread and the first subagents spawn
 
 # Wait for a scene worth shooting: someone needs you (diver out, amber), 7-16 rows (schools with
-# subagents but a readable list), a working root to hover, and the chest at least half full.
+# subagents but a readable list), with HOVER=1 a working root to hover, and the chest at least half full.
 for i in $(seq 1 "$SCENE_POLLS"); do
   s=$("${AB[@]}" eval "$(cat "$HERE/pick.js")" 2>/dev/null | tr -d '"') || s=""
   [[ "$s" =~ ^[0-9]+\|(true|false)\| ]] || s="0|false|null" # a failed eval is just a bad poll
   used=$(curl -s --max-time 5 "$URL/api/usage" | grep -o '"fiveHour":{"usedPercent":[0-9.]*' | grep -o '[0-9.]*$' || echo 100)
   IFS='|' read -r rows needs follow <<<"$s"
   echo "poll $i: rows=$rows needsYou=$needs follow=$follow used=$used%"
-  if [ "$needs" = true ] && [ "$follow" != null ] && [ "$rows" -ge 7 ] && [ "$rows" -le 16 ] && [ "${used%.*}" -lt 45 ]; then
+  if [ "$needs" = true ] && { [ "$HOVER" != 1 ] || [ "$follow" != null ]; } && [ "$rows" -ge 7 ] && [ "$rows" -le 16 ] && [ "${used%.*}" -lt 45 ]; then
     break
   fi
   "${AB[@]}" wait 2000 >/dev/null
 done
 
 "${AB[@]}" eval "window.__freeze()" >/dev/null
-"${AB[@]}" eval "window.__step(6)" >/dev/null # let the tooltip and row highlight settle
+"${AB[@]}" eval "window.__step(6)" >/dev/null # let the frame settle (and with HOVER=1 the tooltip)
 "${AB[@]}" screenshot "$OUT/screenshot.png" >/dev/null
 
 FR="$WORK/frames"
