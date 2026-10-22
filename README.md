@@ -92,6 +92,10 @@ flowchart LR
 
 Implement a `BackgroundService` that calls `IAgentSink.Upsert` / `Observe` / `Remove`, and register it in `Program.cs`. `DemoSource` is the minimal example. Use `Source` on the descriptor to say where an agent came from. For a push-based source (hooks, OpenTelemetry, another tool's webhook), add an endpoint that maps the payload onto the same sink calls. A source that knows plan usage reports it to `IUsageSink`.
 
+## Support
+
+If Agent Aquarium is useful to you, you can [buy me a coffee on Ko-fi](https://ko-fi.com/guyvdn).
+
 ## License
 
 [MIT](LICENSE)
