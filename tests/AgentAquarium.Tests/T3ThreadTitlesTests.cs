@@ -105,6 +105,72 @@ public sealed class T3ThreadTitlesTests : IDisposable
     }
 
     [Fact]
+    public void Codex_threads_are_finished_when_deleted_archived_or_idle_and_done()
+    {
+        Execute("""
+            create table orchestration_v2_projection_threads (thread_id text primary key, title text not null, updated_at text, archived_at text, deleted_at text, active_provider_thread_id text, payload_json text not null);
+            create table orchestration_v2_projection_provider_threads (provider_thread_id text primary key, thread_id text, provider text, driver text, status text not null, updated_at text, payload_json text);
+            insert into orchestration_v2_projection_threads values
+              ('open', 'Waiting on the user', '2026-10-26', null, null, 'p-open', '{}'),
+              ('settled', 'Settled', '2026-10-26', null, null, 'p-settled', '{"settledOverride":"settled"}'),
+              ('settled-busy', 'Settled but running', '2026-10-26', null, null, 'p-settled-busy', '{"settledOverride":"settled"}'),
+              ('review', 'Subagent review', '2026-10-26', null, null, 'p-review', '{"lineage":{"relationshipToParent":"subagent"}}'),
+              ('archived', 'Archived', '2026-10-26', '2026-10-26', null, 'p-archived', '{}'),
+              ('deleted', 'Deleted', '2026-10-26', null, '2026-10-26', 'p-deleted', '{}'),
+              ('switched', 'Now on Claude', '2026-10-26', null, null, 'p-claude', '{}'),
+              ('resumed', 'Resumed', '2026-10-26', null, null, 'p-resumed-new', '{}');
+            insert into orchestration_v2_projection_provider_threads values
+              ('p-open', 'open', 'codex', 'codex', 'idle', '2026-10-26', '{"nativeThreadRef":{"nativeId":"open"}}'),
+              ('p-settled', 'settled', 'codex', 'codex', 'idle', '2026-10-26', '{"nativeThreadRef":{"nativeId":"settled"}}'),
+              ('p-settled-busy', 'settled-busy', 'codex', 'codex', 'active', '2026-10-26', '{"nativeThreadRef":{"nativeId":"settled-busy"}}'),
+              ('p-review', 'review', 'codex', 'codex', 'idle', '2026-10-26', '{"nativeThreadRef":{"nativeId":"review"}}'),
+              ('p-archived', 'archived', 'codex', 'codex', 'active', '2026-10-26', '{"nativeThreadRef":{"nativeId":"archived"}}'),
+              ('p-deleted', 'deleted', 'codex', 'codex', 'active', '2026-10-26', '{"nativeThreadRef":{"nativeId":"deleted"}}'),
+              ('p-switched', 'switched', 'codex', 'codex', 'idle', '2026-10-26', '{"nativeThreadRef":{"nativeId":"switched"}}'),
+              ('p-claude', 'switched', 'claudeAgent', 'claudeAgent', 'active', '2026-10-26', '{"nativeThreadRef":{"nativeId":"switched-claude"}}'),
+              ('p-resumed-new', 'resumed', 'codex', 'codex', 'idle', '2026-10-26', '{"nativeThreadRef":{"nativeId":"resumed"}}'),
+              ('p-resumed-stale', 'resumed', 'codex', 'codex', 'idle', '2026-10-27', '{"nativeThreadRef":{"nativeId":"resumed"}}');
+            """);
+        var codex = new T3ThreadTitles(StateFile, "codex");
+        Assert.True(codex.Refresh());
+
+        Assert.False(codex.IsFinished("open"));
+        Assert.True(codex.IsFinished("settled"));
+        Assert.False(codex.IsFinished("settled-busy"));
+        Assert.True(codex.IsFinished("review"));
+        Assert.True(codex.IsFinished("archived"));
+        Assert.True(codex.IsFinished("deleted"));
+        Assert.True(codex.IsFinished("switched"));
+        Assert.False(codex.IsFinished("resumed")); // the thread's active provider thread wins over a later one
+
+        // Only the finished set changes: still a change.
+        Execute("update orchestration_v2_projection_provider_threads set status = 'active' where provider_thread_id = 'p-review'");
+        Assert.True(codex.Refresh());
+        Assert.False(codex.IsFinished("review"));
+
+        var claude = new T3ThreadTitles(StateFile);
+        Assert.True(claude.Refresh());
+        Assert.False(claude.IsFinished("settled"));
+    }
+
+    [Fact]
+    public void Codex_titles_load_when_the_finished_threads_cannot_be_read()
+    {
+        // A v2 schema without the columns the finished query needs.
+        Execute("""
+            create table orchestration_v2_projection_threads (thread_id text primary key, title text not null, updated_at text, deleted_at text);
+            create table orchestration_v2_projection_provider_threads (provider_thread_id text primary key, thread_id text, provider text, driver text, updated_at text, payload_json text);
+            insert into orchestration_v2_projection_threads values ('codex-thread', 'Codex task', '2026-10-26', null);
+            insert into orchestration_v2_projection_provider_threads values
+              ('c1', 'codex-thread', 'codex', 'codex', '2026-10-26', '{"nativeThreadRef":{"nativeId":"codex-id"}}');
+            """);
+        var codex = new T3ThreadTitles(StateFile, "codex");
+        Assert.True(codex.Refresh());
+        Assert.Equal("Codex task", codex.TitleFor("codex-id"));
+        Assert.False(codex.IsFinished("codex-id"));
+    }
+
+    [Fact]
     public void Missing_database_reads_nothing() =>
         Assert.False(new T3ThreadTitles(Path.Combine(_dir, "missing.sqlite")).Refresh());
 

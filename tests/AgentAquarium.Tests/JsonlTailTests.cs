@@ -31,6 +31,18 @@ public sealed class JsonlTailTests : IDisposable
     }
 
     [Fact]
+    public void Limit_stops_the_read_and_a_line_cut_by_it_completes_after()
+    {
+        var tail = new JsonlTail(_path);
+        Append("{\"a\":1}\n{\"b\":2}\n{\"c\":3}\n");
+
+        Assert.Equal(["{\"a\":1}"], tail.ReadNewLines(limit: 10)); // ends inside the second line
+        Assert.False(tail.Behind);
+        Assert.Empty(tail.ReadNewLines(limit: 10));
+        Assert.Equal(["{\"b\":2}", "{\"c\":3}"], tail.ReadNewLines());
+    }
+
+    [Fact]
     public void Multibyte_character_split_across_reads_survives()
     {
         var tail = new JsonlTail(_path);

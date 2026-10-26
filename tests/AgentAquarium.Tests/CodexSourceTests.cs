@@ -1,6 +1,8 @@
+using System.Diagnostics.CodeAnalysis;
 using AgentAquarium.Domain;
 using AgentAquarium.Sources.Codex;
 using AgentAquarium.Tank;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
@@ -42,6 +44,16 @@ public sealed class CodexSourceTests : IDisposable
 
     private void Append(string path, string type, string payload) =>
         File.AppendAllText(path, $$$$"""{"timestamp":"{{{{_clock.GetUtcNow():O}}}}","type":"{{{{type}}}}","payload":{{{{payload}}}}}""" + "\n");
+
+    [SuppressMessage("Security", "CA2100", Justification = "Test fixture; the SQL is built from the test's own literals.")]
+    private static void ExecuteSql(string file, string sql)
+    {
+        using var connection = new SqliteConnection($"Data Source={file};Pooling=False");
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.ExecuteNonQuery();
+    }
 
     [Fact]
     public void Tools_questions_context_and_turn_completion_follow_the_log()
@@ -209,6 +221,79 @@ public sealed class CodexSourceTests : IDisposable
             Assert.Equal(1, fish.ToolCalls);
             Assert.Equal(0, fish.SpentTokens);
             Assert.Equal(AgentStatus.Working, fish.Status);
+        }
+        finally
+        {
+            writer.Unlock(0, 1);
+        }
+    }
+
+    /// <summary>A T3 Code state database with one Codex subagent thread, running.</summary>
+    private string CreateT3State(string id, string title)
+    {
+        var state = Path.Combine(_dir, "statev2.sqlite");
+        ExecuteSql(state, $$$"""
+            create table orchestration_v2_projection_threads (thread_id text primary key, title text not null, updated_at text, archived_at text, deleted_at text, active_provider_thread_id text, payload_json text not null);
+            create table orchestration_v2_projection_provider_threads (provider_thread_id text primary key, thread_id text, provider text, driver text, status text, updated_at text, payload_json text);
+            create table provider_session_runtime (thread_id text primary key, resume_cursor_json text);
+            insert into orchestration_v2_projection_threads values ('t1', '{{{title}}}', '2026-10-26', null, null, 'p1', '{"lineage":{"relationshipToParent":"subagent"}}');
+            insert into orchestration_v2_projection_provider_threads values ('p1', 't1', 'codex', 'codex', 'active', '2026-10-26', '{"nativeThreadRef":{"nativeId":"{{{id}}}"}}');
+            """);
+        return state;
+    }
+
+    [Fact]
+    public void Finished_t3_thread_leaves_the_tank_although_the_shared_server_holds_its_lock()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+        const string id = "11111111-2222-3333-4444-555555555555";
+        var transcript = Write(id);
+        Append(transcript, "event_msg", """{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000}}}""");
+        Append(transcript, "event_msg", """{"type":"token_count","info":{"total_token_usage":{"input_tokens":2000}}}""");
+        var state = CreateT3State(id, "Review before push");
+        void Execute(string sql) => ExecuteSql(state, sql);
+        using var source = new CodexSource(_registry, _usage,
+            Options.Create(new CodexOptions { T3StateFile = state, T3PollInterval = TimeSpan.FromSeconds(5) }),
+            _clock, NullLogger<CodexSource>.Instance);
+        var locks = Directory.CreateDirectory(Path.Combine(_dir, "thread-writer-locks")).FullName;
+        using var writer = new FileStream(Path.Combine(locks, id + ".lock"), FileMode.Create,
+            FileAccess.ReadWrite, FileShare.ReadWrite);
+        writer.Lock(0, 1);
+        try
+        {
+            source.Poll([Root]);
+            Assert.Equal("Review before push", Assert.Single(_registry.Snapshot()).Label);
+
+            Execute("update orchestration_v2_projection_provider_threads set status = 'idle'");
+            _clock.Advance(TimeSpan.FromSeconds(5));
+            source.Poll([Root]);
+            Assert.Empty(_registry.Snapshot());
+
+            // Resumed: the log is read before T3 Code's state says so, but that turn's spend still counts.
+            Append(transcript, "event_msg", """{"type":"token_count","info":{"total_token_usage":{"input_tokens":2500}}}""");
+            _clock.Advance(TimeSpan.FromSeconds(1));
+            source.Poll([Root]);
+            Assert.Empty(_registry.Snapshot());
+            Execute("update orchestration_v2_projection_provider_threads set status = 'active'");
+            _clock.Advance(TimeSpan.FromSeconds(4));
+            source.Poll([Root]);
+            Assert.Equal(0, Assert.Single(_registry.Snapshot()).SpentTokens); // history replays first
+            source.Poll([Root]);
+            Assert.Equal(500, Assert.Single(_registry.Snapshot()).SpentTokens);
+
+            // An idle conversation waits for its user; once the thread moves to another provider, it is done.
+            Execute("""
+                update orchestration_v2_projection_threads set payload_json = '{}';
+                update orchestration_v2_projection_provider_threads set status = 'idle';
+                """);
+            _clock.Advance(TimeSpan.FromSeconds(5));
+            source.Poll([Root]);
+            Assert.Single(_registry.Snapshot());
+            Execute("update orchestration_v2_projection_threads set active_provider_thread_id = 'p2'");
+            _clock.Advance(TimeSpan.FromSeconds(5));
+            source.Poll([Root]);
+            Assert.Empty(_registry.Snapshot());
         }
         finally
         {

@@ -14,7 +14,10 @@ public sealed class CodexOptions
     public TimeSpan T3PollInterval { get; set; } = TimeSpan.FromSeconds(5);
 }
 
-/// <summary>Tails Codex rollout logs; writer locks keep quiet, open sessions in the tank.</summary>
+/// <summary>
+/// Tails Codex rollout logs; writer locks keep quiet, open sessions in the tank, unless T3 Code says
+/// the thread is finished (its shared app-server never releases the lock).
+/// </summary>
 public sealed partial class CodexSource(
     IAgentSink sink,
     IUsageSink usage,
@@ -99,29 +102,34 @@ public sealed partial class CodexSource(
             _files.Add(path, file);
         }
         // A closed session's log was still consumed for usage. On resume, rebuild the registry's
-        // context and counters from history, suppressing spend throughout the replay.
-        if (file.Closed && live != false)
+        // context and counters from history, suppressing spend only up to where it was accounted for:
+        // T3 state is read less often than the log, so a resumed turn may already have been consumed.
+        // A finished T3 thread is not a resume: its lock is the shared app-server's, not new activity.
+        if (file.Closed && live != false && (file.State.Id is not { } closedId || !_titles.IsFinished(closedId)))
         {
-            file = new TrackedSession(path);
+            file = new TrackedSession(path) { ReplayUntil = file.Replaying ? file.ReplayUntil : file.SpendFrom };
             _files[path] = file;
         }
         var replaying = file.Replaying;
         var observations = new List<AgentObservation>();
-        foreach (var line in file.Tail.ReadNewLines())
+        foreach (var line in file.Tail.ReadNewLines(replaying ? file.ReplayUntil : long.MaxValue))
             observations.AddRange(file.State.Read(line));
         file.Replaying = file.Tail.Behind;
         var state = file.State;
         if (state.Usage is { } report)
             usage.Report(report);
-        if (live == false)
+        if (live == false || (state.Id is { } finishedId && _titles.IsFinished(finishedId)))
         {
             if (file.Published && state.Id is { } endedId)
                 sink.Remove(Id(endedId));
             file.Published = false;
             file.Closed = true;
+            if (replaying)
+                file.SpendFrom = file.Tail.Offset;
             return;
         }
         Publish(file, live, observations, replaying);
+        file.SpendFrom = file.Tail.Offset;
     }
 
     private void Publish(TrackedSession file, bool? live, List<AgentObservation> observations, bool replaying)
@@ -191,6 +199,12 @@ public sealed partial class CodexSource(
         public bool Published { get; set; }
         public bool Replaying { get; set; } = true;
         public bool Closed { get; set; }
+
+        /// <summary>Where history ends for a resume: spend before it was replayed or published.</summary>
+        public long SpendFrom { get; set; }
+
+        /// <summary>How far a resume replays without spending.</summary>
+        public long ReplayUntil { get; init; } = long.MaxValue;
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Polling Codex sessions failed; retrying next tick")]

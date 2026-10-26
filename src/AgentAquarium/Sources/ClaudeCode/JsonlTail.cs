@@ -18,14 +18,15 @@ internal sealed class JsonlTail(string path, int maxChunkBytes = JsonlTail.Defau
     /// <summary>Bytes consumed so far, including a held-back partial line.</summary>
     public long Offset { get; private set; }
 
-    /// <summary>True when the last read stopped at the chunk limit and more is waiting.</summary>
+    /// <summary>True when the last read stopped at the chunk or the caller's limit and more is waiting.</summary>
     public bool Behind { get; private set; }
 
     /// <summary>
     /// Reads at most one chunk of newly appended data. A file that shrank was rewritten,
     /// so it is read again from the start. Throws on I/O errors; the caller decides what to skip.
     /// </summary>
-    public IReadOnlyList<string> ReadNewLines()
+    /// <param name="limit">Reads no further than this offset; the rest waits for the next call.</param>
+    public IReadOnlyList<string> ReadNewLines(long limit = long.MaxValue)
     {
         using var stream = new FileStream(Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         var length = stream.Length;
@@ -36,7 +37,7 @@ internal sealed class JsonlTail(string path, int maxChunkBytes = JsonlTail.Defau
             _partial = [];
         }
 
-        var available = length - Offset;
+        var available = Math.Max(0, Math.Min(length, limit) - Offset);
         if (available == 0)
         {
             Behind = false;
@@ -47,7 +48,7 @@ internal sealed class JsonlTail(string path, int maxChunkBytes = JsonlTail.Defau
         stream.Seek(Offset, SeekOrigin.Begin);
         var read = stream.ReadAtLeast(chunk, chunk.Length, throwOnEndOfStream: false);
         Offset += read;
-        Behind = Offset < length;
+        Behind = Offset < Math.Min(length, limit);
 
         return Split(chunk.AsSpan(0, read));
     }
