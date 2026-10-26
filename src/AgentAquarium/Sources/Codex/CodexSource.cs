@@ -158,7 +158,7 @@ public sealed partial class CodexSource(
         }
         sink.Upsert(new AgentDescriptor(Id(id), state.ParentId is { } p ? Id(p) : null, Id(session), SourceName,
             title ?? state.Title ?? project, detail, depth, LifetimeManaged: live == true,
-            WorkInFlight: state.OpenCalls.Count > 0));
+            WorkInFlight: state.OpenCalls.Count > 0, SnoozedUntil: _titles.SnoozedUntil(id)));
         file.Published = true;
         foreach (var observation in observations)
             if (!replaying || observation is not SpendObserved)

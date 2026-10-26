@@ -31,6 +31,10 @@ public enum AgentStatus
 /// The source can see work still running for this agent (a tool call without its result, background
 /// work), so a silent Working agent is busy, not stalled: a build or a test run can take many minutes.
 /// </param>
+/// <param name="SnoozedUntil">
+/// The user put the session away until then (a snoozed T3 Code thread): until that time it stays out of
+/// the tank, though still tracked, unless one of its agents waits on the user. Only the main agent's counts.
+/// </param>
 public sealed record AgentDescriptor(
     string Id,
     string? ParentId,
@@ -40,7 +44,8 @@ public sealed record AgentDescriptor(
     string? Detail = null,
     int Depth = 0,
     bool LifetimeManaged = false,
-    bool WorkInFlight = false);
+    bool WorkInFlight = false,
+    DateTimeOffset? SnoozedUntil = null);
 
 public abstract record AgentObservation(DateTimeOffset At);
 

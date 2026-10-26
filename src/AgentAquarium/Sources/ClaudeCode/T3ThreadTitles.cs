@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 
 namespace AgentAquarium.Sources.ClaudeCode;
@@ -17,6 +18,7 @@ namespace AgentAquarium.Sources.ClaudeCode;
 /// </list>
 /// After the update T3 Code leaves <c>state.sqlite</c> behind, frozen, so the newer file wins when both exist.
 /// For Codex it also reads which threads are finished (<see cref="IsFinished"/>), since writer locks cannot tell.
+/// From the v2 layout it reads until when a thread is snoozed (<see cref="SnoozedUntil"/>), in its <c>payload_json</c>.
 /// </summary>
 /// <param name="stateFile">The database to read; null picks T3 Code's own, empty turns titles off.</param>
 /// <param name="driver">The native provider: claudeAgent or codex. Legacy titles are Claude-only.</param>
@@ -25,17 +27,36 @@ public sealed class T3ThreadTitles(string? stateFile, string driver = "claudeAge
     private const string V2Threads = "orchestration_v2_projection_threads";
 
     // A session id found by both parts: the v2 row (sorted last) wins.
-    private const string V2Query = $"""
-        select json_extract(r.resume_cursor_json, '$.resume'), t.title, 0, t.updated_at
+    private const string V2Resumed = $"""
         from provider_session_runtime r
         join {V2Threads} t on t.thread_id = r.thread_id
         where $driver = 'claudeAgent' and t.deleted_at is null and json_valid(r.resume_cursor_json)
-        union all
-        select json_extract(p.payload_json, '$.nativeThreadRef.nativeId'), t.title, 1, p.updated_at
+        """;
+
+    private const string V2Native = $"""
         from orchestration_v2_projection_provider_threads p
         join {V2Threads} t on t.thread_id = p.thread_id
         where t.deleted_at is null and coalesce(p.driver, p.provider) = $driver and json_valid(p.payload_json)
         order by 3, 4
+        """;
+
+    private const string V2Query = $"""
+        select json_extract(r.resume_cursor_json, '$.resume'), t.title, 0, t.updated_at
+        {V2Resumed}
+        union all
+        select json_extract(p.payload_json, '$.nativeThreadRef.nativeId'), t.title, 1, p.updated_at
+        {V2Native}
+        """;
+
+    // Left behind once the time has passed, so a past time is not snoozed; waking the thread clears it.
+    private const string SnoozedUntilValue = "case when json_valid(t.payload_json) then json_extract(t.payload_json, '$.snoozedUntil') end";
+
+    private const string SnoozedQuery = $"""
+        select json_extract(r.resume_cursor_json, '$.resume'), {SnoozedUntilValue}, 0, t.updated_at
+        {V2Resumed}
+        union all
+        select json_extract(p.payload_json, '$.nativeThreadRef.nativeId'), {SnoozedUntilValue}, 1, p.updated_at
+        {V2Native}
         """;
 
     private const string LegacyQuery = """
@@ -70,6 +91,8 @@ public sealed class T3ThreadTitles(string? stateFile, string driver = "claudeAge
 
     private HashSet<string> _finished = new(StringComparer.OrdinalIgnoreCase);
 
+    private Dictionary<string, DateTimeOffset> _snoozed = new(StringComparer.OrdinalIgnoreCase);
+
     private static string UserData =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".t3", "userdata");
 
@@ -82,9 +105,13 @@ public sealed class T3ThreadTitles(string? stateFile, string driver = "claudeAge
     /// <summary>True for a Codex session whose T3 Code thread is finished, however its writer lock looks.</summary>
     public bool IsFinished(string sessionId) => _finished.Contains(sessionId);
 
+    /// <summary>Until when the session's T3 Code thread is snoozed, which may be in the past; null when it is not.</summary>
+    public DateTimeOffset? SnoozedUntil(string sessionId) =>
+        _snoozed.TryGetValue(sessionId, out var until) ? until : null;
+
     /// <summary>
-    /// Reads the titles, and for Codex the finished threads, again. True when any changed; a missing or busy
-    /// database keeps the last ones, and so does a failed finished read, without holding back the titles.
+    /// Reads the titles, the snoozes, and for Codex the finished threads, again. True when any changed; a missing
+    /// or busy database keeps the last ones, and so does a failed snooze or finished read, without holding back the titles.
     /// </summary>
     public bool Refresh()
     {
@@ -94,6 +121,7 @@ public sealed class T3ThreadTitles(string? stateFile, string driver = "claudeAge
 
         var titles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var finished = _finished;
+        var snoozed = _snoozed;
         try
         {
             // Not pooled, so no handle is kept on T3 Code's database between reads.
@@ -118,6 +146,8 @@ public sealed class T3ThreadTitles(string? stateFile, string driver = "claudeAge
                 while (reader.Read())
                     if (!reader.IsDBNull(0) && !reader.IsDBNull(1))
                         titles[reader.GetString(0)] = reader.GetString(1); // a session resumed twice: the latest thread wins
+            if (hasV2)
+                snoozed = ReadSnoozed(command) ?? _snoozed;
             if (hasV2 && driver == "codex")
                 finished = ReadFinished(command) ?? _finished;
         }
@@ -126,12 +156,41 @@ public sealed class T3ThreadTitles(string? stateFile, string driver = "claudeAge
             return false; // busy, a schema we do not know, or no native SQLite: keep what we had
         }
 
-        if (finished.SetEquals(_finished) && titles.Count == _bySession.Count
-            && titles.All(t => _bySession.GetValueOrDefault(t.Key) == t.Value))
+        if (finished.SetEquals(_finished) && SameAs(titles, _bySession) && SameAs(snoozed, _snoozed))
             return false;
         _bySession = titles;
         _finished = finished;
+        _snoozed = snoozed;
         return true;
+    }
+
+    private static bool SameAs<T>(Dictionary<string, T> read, Dictionary<string, T> had) =>
+        read.Count == had.Count && read.All(r => had.TryGetValue(r.Key, out var v) && EqualityComparer<T>.Default.Equals(v, r.Value));
+
+    /// <summary>Null when the query fails: a schema without a thread payload must not cost the titles.</summary>
+    private static Dictionary<string, DateTimeOffset>? ReadSnoozed(SqliteCommand command)
+    {
+        var snoozed = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            command.CommandText = SnoozedQuery;
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+                if (!reader.IsDBNull(0))
+                {
+                    // A session on several threads: the latest one decides, like its title.
+                    if (!reader.IsDBNull(1) && DateTimeOffset.TryParse(reader.GetString(1), CultureInfo.InvariantCulture,
+                            DateTimeStyles.AssumeUniversal, out var until))
+                        snoozed[reader.GetString(0)] = until;
+                    else
+                        snoozed.Remove(reader.GetString(0));
+                }
+            return snoozed;
+        }
+        catch (SqliteException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Null when the query fails: a schema without one of its columns must not cost the titles.</summary>

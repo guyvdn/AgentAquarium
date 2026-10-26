@@ -102,8 +102,27 @@ public sealed class AgentRegistry(IOptions<TankOptions> options, TimeProvider cl
         lock (_gate)
         {
             Prune(now);
-            return _agents.Values.Select(s => s.ToSnapshot(now, _options)).ToList();
+            var snoozed = Snoozed(now);
+            return _agents.Values
+                .Where(s => !snoozed.Contains(s.Descriptor.SessionId))
+                .Select(s => s.ToSnapshot(now, _options))
+                .ToList();
         }
+    }
+
+    /// <summary>
+    /// Sessions put away for now. Like T3 Code's sidebar, a snoozed session that needs the user wakes up:
+    /// a permission prompt or a question in any of its agents brings it back before its time.
+    /// </summary>
+    private HashSet<string> Snoozed(DateTimeOffset now)
+    {
+        var snoozed = _agents.Values
+            .Where(s => s.Descriptor.Id == s.Descriptor.SessionId && s.Descriptor.SnoozedUntil > now)
+            .Select(s => s.Descriptor.SessionId)
+            .ToHashSet(StringComparer.Ordinal);
+        if (snoozed.Count > 0)
+            snoozed.ExceptWith(_agents.Values.Where(s => s.Status == AgentStatus.Waiting).Select(s => s.Descriptor.SessionId));
+        return snoozed;
     }
 
     private void Prune(DateTimeOffset now)

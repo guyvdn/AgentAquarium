@@ -40,6 +40,12 @@ public sealed class T3ThreadTitlesTests : IDisposable
             insert into provider_session_runtime values ('{threadId}', {(resumeCursor is null ? "null" : $"'{resumeCursor}'")});
             """);
 
+    private void CreateV2Schema() =>
+        Execute("""
+            create table orchestration_v2_projection_threads (thread_id text primary key, title text not null, updated_at text, deleted_at text, payload_json text not null);
+            create table orchestration_v2_projection_provider_threads (provider_thread_id text primary key, thread_id text, provider text, driver text, updated_at text, payload_json text);
+            """);
+
     [Fact]
     public void Titles_are_keyed_by_the_resumed_claude_session()
     {
@@ -82,6 +88,39 @@ public sealed class T3ThreadTitlesTests : IDisposable
         Assert.Equal("Thread started after the update", titles.TitleFor(Session));
         Assert.Equal("Imported thread", titles.TitleFor("imported-session"));
         Assert.Null(titles.TitleFor("deleted-session"));
+        Assert.Null(titles.SnoozedUntil(Session)); // no thread payload to read it from: the titles still load
+    }
+
+    [Fact]
+    public void Snoozed_threads_are_read_for_both_parts_of_a_v2_database()
+    {
+        CreateV2Schema();
+        Execute($$$"""
+            insert into provider_session_runtime values ('old', '{"resume":"imported-session"}');
+            insert into orchestration_v2_projection_threads values
+              ('old', 'Imported thread', '2026-10-26', null, '{"snoozedUntil":"2026-10-27T08:00:00.000Z"}'),
+              ('new', 'New thread', '2026-10-26', null, '{"snoozedUntil":"2026-10-27T09:00:00.000Z","snoozedAt":"2026-10-26T15:00:00.000Z"}'),
+              ('awake', 'Awake thread', '2026-10-26', null, '{"snoozedUntil":null}'),
+              ('odd', 'Unreadable time', '2026-10-26', null, '{"snoozedUntil":"tomorrow"}');
+            insert into orchestration_v2_projection_provider_threads values
+              ('p1', 'new', 'claudeAgent', 'claudeAgent', '2026-10-26', '{"nativeThreadRef":{"nativeId":"{{{Session}}}"}}'),
+              ('p2', 'awake', 'claudeAgent', 'claudeAgent', '2026-10-26', '{"nativeThreadRef":{"nativeId":"awake-session"}}'),
+              ('p3', 'odd', 'claudeAgent', 'claudeAgent', '2026-10-26', '{"nativeThreadRef":{"nativeId":"odd-session"}}');
+            """);
+        var titles = new T3ThreadTitles(StateFile);
+
+        Assert.True(titles.Refresh());
+
+        Assert.Equal(new DateTimeOffset(2026, 10, 27, 9, 0, 0, TimeSpan.Zero), titles.SnoozedUntil(Session));
+        Assert.Equal(new DateTimeOffset(2026, 10, 27, 8, 0, 0, TimeSpan.Zero), titles.SnoozedUntil("imported-session"));
+        Assert.Null(titles.SnoozedUntil("awake-session"));
+        Assert.Null(titles.SnoozedUntil("odd-session"));
+
+        // Woken in T3 Code: only the snooze changes, still a change.
+        Execute("update orchestration_v2_projection_threads set payload_json = '{\"snoozedUntil\":null}' where thread_id = 'new'");
+        Assert.True(titles.Refresh());
+        Assert.Null(titles.SnoozedUntil(Session));
+        Assert.False(titles.Refresh());
     }
 
     [Fact]
@@ -233,6 +272,40 @@ public sealed class T3ThreadTitlesTests : IDisposable
         agent = registry.Snapshot().Single(a => a.Id == Session);
         Assert.Equal("Renamed in T3", agent.Label);
         Assert.Equal("T3 Code · repo", agent.Detail);
+    }
+
+    [Fact]
+    public void Snoozed_t3_session_leaves_the_tank_and_returns_when_woken()
+    {
+        CreateV2Schema();
+        var snoozed = """{"snoozedUntil":"2099-01-01T08:00:00.000Z"}""";
+        Execute($$$"""
+            insert into orchestration_v2_projection_threads values ('t1', 'Snoozed thread', '2026-10-26', null, '{{{snoozed}}}');
+            insert into orchestration_v2_projection_provider_threads values
+              ('p1', 't1', 'claudeAgent', 'claudeAgent', '2026-10-26', '{"nativeThreadRef":{"nativeId":"{{{Session}}}"}}');
+            """);
+        var project = Directory.CreateDirectory(Path.Combine(Root, "project")).FullName;
+        File.WriteAllText(Path.Combine(project, $"{Session}.jsonl"), $$$"""
+            {"type":"user","cwd":"D:\repo","entrypoint":"sdk-ts","timestamp":"{{{DateTimeOffset.UtcNow:O}}}","message":{"role":"user","content":"hi"}}
+
+            """);
+        var sessions = Directory.CreateDirectory(Path.Combine(_dir, "sessions")).FullName;
+        File.WriteAllText(Path.Combine(sessions, $"{Environment.ProcessId}.json"),
+            $$"""{"pid":{{Environment.ProcessId}},"sessionId":"{{Session}}","status":"idle"}""");
+
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var registry = new AgentRegistry(Options.Create(new TankOptions()), clock);
+        var options = new ClaudeCodeOptions { T3StateFile = StateFile, T3PollInterval = TimeSpan.FromSeconds(5) };
+        using var source = new ClaudeCodeSource(registry, Options.Create(options), new PermissionRequests(), clock,
+            NullLogger<ClaudeCodeSource>.Instance);
+
+        source.Poll([Root]);
+        Assert.Empty(registry.Snapshot());
+
+        Execute("update orchestration_v2_projection_threads set payload_json = '{}' where thread_id = 't1'");
+        clock.Advance(TimeSpan.FromSeconds(5));
+        source.Poll([Root]);
+        Assert.Equal("Snoozed thread", Assert.Single(registry.Snapshot()).Label);
     }
 
     [Fact]

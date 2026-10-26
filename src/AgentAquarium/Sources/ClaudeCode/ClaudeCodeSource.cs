@@ -457,8 +457,10 @@ public sealed partial class ClaudeCodeSource(
             // HEAD is no branch: a detached checkout, or a folder that is not a repo at all.
             var branch = file.GitBranch is "HEAD" ? null : file.GitBranch;
             var detail = string.Join(" · ", new[] { host, where, branch }.Where(s => !string.IsNullOrEmpty(s)));
+            // Snoozed in T3 Code's sidebar; not when resumed in a terminal, where the user is at it.
+            var snoozedUntil = host == T3Host ? _t3Titles.SnoozedUntil(file.SessionId) : null;
             return new AgentDescriptor(file.AgentId, null, file.SessionId, SourceName, label, detail, 0,
-                LifetimeManaged: file.Live is not null, WorkInFlight: WorkInFlight(file));
+                LifetimeManaged: file.Live is not null, WorkInFlight: WorkInFlight(file), SnoozedUntil: snoozedUntil);
         }
 
         file.Meta ??= SubagentMeta.TryRead(file.MetaPath!);

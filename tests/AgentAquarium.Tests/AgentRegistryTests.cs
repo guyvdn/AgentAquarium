@@ -103,6 +103,27 @@ public class AgentRegistryTests
     }
 
     [Fact]
+    public void A_snoozed_session_stays_out_of_the_tank_until_its_time_or_a_wait()
+    {
+        _registry.Upsert(new AgentDescriptor("a", null, "a", "test", "s", LifetimeManaged: true, SnoozedUntil: Now + TimeSpan.FromHours(1)));
+        _registry.Upsert(new AgentDescriptor("a/b", "a", "a", "test", "sub", Depth: 1, LifetimeManaged: true));
+        _registry.Upsert(new AgentDescriptor("c", null, "c", "test", "other", LifetimeManaged: true));
+        _registry.Observe("a", new StatusObserved(Now, AgentStatus.Idle));
+        _registry.Observe("a/b", new StatusObserved(Now, AgentStatus.Working));
+
+        Assert.Equal("c", Assert.Single(_registry.Snapshot()).Id);
+
+        // A question, even in a subagent, wakes the session before its time.
+        _registry.Observe("a/b", new StatusObserved(Now, AgentStatus.Waiting, "a question"));
+        Assert.Equal(3, _registry.Snapshot().Count);
+        _registry.Observe("a/b", new StatusObserved(Now, AgentStatus.Working));
+        Assert.Equal("c", Assert.Single(_registry.Snapshot()).Id);
+
+        _clock.Advance(TimeSpan.FromHours(1));
+        Assert.Equal(3, _registry.Snapshot().Count);
+    }
+
+    [Fact]
     public void Children_leave_with_their_parent()
     {
         _registry.Upsert(new AgentDescriptor("a", null, "a", "test", "s"));
