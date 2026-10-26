@@ -7,48 +7,52 @@ description: How to regenerate the README media, docs/screenshot.png and docs/de
 
 `docs/screenshot.png` (1600x900 PNG, ~300 KB) and `docs/demo.gif` (960x540, 12 fps, 9 s, ~4 MB)
 are both shot from the demo source. Retake them whenever the tank gains something a reader should
-see. As of 2026-10-22 that means: sessions labelled with their titles and subagents with their
-tasks, the diver with its badge, the chest, amber "needs you", subagent schools, the slow glow on
-the Schools dots of the sessions the diver comes for, and coins trickling into the chest from token
+see. As of 2026-10-26 that means: sessions labelled with their titles and subagents with their
+tasks, the diver with its badge, both labelled usage chests, amber "needs you", subagent schools, the slow glow on
+the Schools dots of the sessions the diver comes for, and coins floating away from their provider's chest from token
 spend (the demo emits `SpendObserved`). No fish is hovered: the user found the tooltip distracting
 in the README media (2026-10-22). `HOVER=1` brings it back, with its highlighted Schools row.
 
 ## Run it
 
-**Windows only:** Git Bash, with `powershell.exe` and `taskkill` for process control. It also needs
-`agent-browser`, `ffmpeg` and the .NET SDK.
+The current pipeline uses Node, `playwright-core` (installed by `npm install`), Microsoft Edge, ffmpeg and the .NET SDK. It never uses the live port 5180. Both real sources are disabled in capture demos.
 
-```bash
-.claude/skills/docs-media/capture.sh "$TEMP/aq-media"   # from the repo root; PORT defaults to 5198
-cp "$TEMP/aq-media/screenshot.png" "$TEMP/aq-media/demo.gif" docs/
+```powershell
+dotnet build src/AgentAquarium -o artifacts/agent-aquarium-media/bin -p:UseAppHost=false
+node .claude/skills/docs-media/capture.mjs http://localhost:5205 artifacts/agent-aquarium-media/docs artifacts/agent-aquarium-media/bin/AgentAquarium.dll
 ```
 
-- **How long:** about 5 minutes of capture (4m45s on 2026-10-15, about 1.9 s per frame), plus the
-  wait for a scene. That wait was 0-4 minutes in practice; the worst case is the full
-  `SCENE_POLLS` (150 polls of about 3.5 s, roughly 9 minutes), after which it shoots anyway. Run it
-  in the background with a `timeout` of 20 minutes or more.
-- **What it writes:** `screenshot.png`, `demo.gif`, `build.log` and `server.log` in the out-dir. The
-  build also refreshes the repo's git-ignored `obj/`. The build output and frames go in a separate
-  `mktemp -d` dir, which is deleted on exit, along with closing the browser and killing the server
-  it started.
-- **What it refuses:** port 5180, and any port something already listens on. Otherwise the shots
-  would come from that app.
-- **Check before copying:** open both files before copying them into `docs/`, because the scene is
-  random.
-- **Commit `capture.sh` with its exec bit:** `git add --chmod=+x .claude/skills/docs-media/capture.sh`.
+The optional DLL argument starts a fresh demo on an unused spare port and stops that owned process after capture. Without it, the URL must already serve the demo. The helper waits for a readable scene with subagents, a waiting session and gold in both chests, then uses capture-only module access to spread roots and children clear of the Schools panel. Their subsequent swimming uses the real simulation. No tooltips are shown.
 
-| File           | What it does                                                                                  |
-| -------------- | --------------------------------------------------------------------------------------------- |
-| `capture.sh`   | Builds, runs the demo, waits for a good scene, shoots the still and the frames, makes the GIF |
-| `tank-boot.js` | Boots the tank with a pausable clock, paced server updates and (`HOVER=1`) pointer-follow     |
-| `pick.js`      | Reads the Schools list, picks the fish to hover, reports whether the scene is ready           |
+It writes `screenshot.png`, `demo.gif` and temporary frame PNGs to the output folder. Inspect both deliverables before copying them to `docs/`. Keep the GIF below 5 MB. A typical run takes about one minute; an unsuitable already-running random demo can time out, so use the fresh-DLL argument.
+
+The older Git Bash `capture.sh` entry point remains supported. It builds in a temp folder and runs agent-browser; its slower screenshot loop can take 5-15 minutes. It now disables Codex as well as Claude and loads the shared virtual clock before `tank-boot.js`. Commit that script with its executable bit.
+
+### Promotion video
+
+The previously external promotion sources now live in `promo/` beside this skill. They preserve the approved 21.5-second square format and generated soundtrack while showing Claude and Codex together, subagent schools, the diver, two chests and the repository link. Fictional data only.
+
+```powershell
+# Serve the current app with the promo assets (leave running during capture):
+node .claude/skills/docs-media/promo/server.mjs src/AgentAquarium/wwwroot .claude/skills/docs-media/promo 5203
+# In a second terminal:
+node .claude/skills/docs-media/promo/render.mjs artifacts/agent-aquarium-media/promo-frames
+python .claude/skills/docs-media/promo/music.py artifacts/agent-aquarium-media/music.wav
+ffmpeg -y -framerate 30 -i artifacts/agent-aquarium-media/promo-frames/f%04d.jpg -i artifacts/agent-aquarium-media/music.wav -vf scale=1080:1080:flags=lanczos -c:v libx264 -crf 18 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart -shortest artifacts/agent-aquarium-media/brag.mp4
+```
+
+Music synthesis needs numpy. Use `promo/encode.mjs <frames-dir> <original.mp4> <output.mp4>` to preserve the approved AAC soundtrack verbatim, or pass a WAV to normalise and encode a new audio track. `render.mjs` takes an optional comma-separated list of frames for still checks; the following optional argument overrides the base URL. The title-card frame is copied to the upload's first frame, matching the original video. Use that same frame as `brag.jpg`.
+
+## Capture clock
+
+`virtual-clock.js` is shared by the README and promo workflows. It virtualises **setTimeout/clearTimeout and requestAnimationFrame/cancelAnimationFrame**, along with `performance.now` and `Date.now`. The capped animation scheduler uses timers between frame requests, so virtualising only rAF would stall the capture. Freezing transfers already-pending callbacks rather than losing them. Regression tests run with `npm run test:js`.
 
 ## How it works, and why
 
 - **It builds into a temp output dir** (`dotnet build -o <work>/bin`). An app already running from
   the worktree's `bin/` locks `AgentAquarium.exe`, and then `dotnet run` fails with MSB3026.
 - **Demo launch.** This is the same as the `demo` profile, on a spare port:
-  `ASPNETCORE_ENVIRONMENT=Development Sources__ClaudeCode__Enabled=false Sources__Demo__Enabled=true ./AgentAquarium.exe --urls http://localhost:5198 --Sources:Demo:Sessions=4`.
+  `ASPNETCORE_ENVIRONMENT=Development Sources__ClaudeCode__Enabled=false Sources__Codex__Enabled=false Sources__Demo__Enabled=true ./AgentAquarium.exe --urls http://localhost:5198 --Sources:Demo:Sessions=4`.
   Never use 5180: the user's live app may be on it. Four sessions give enough schools without
   filling the list. Don't change committed config for a shot.
 - **Getting everything in frame.** The demo is random, so `capture.sh` polls every ~3.5 s until
@@ -56,7 +60,7 @@ cp "$TEMP/aq-media/screenshot.png" "$TEMP/aq-media/demo.gif" docs/
   - the list says "needs you", so the diver is out and the fish is amber;
   - the list has 7-16 rows: schools with subagents, but still readable;
   - with `HOVER=1`, there is a working root to hover;
-  - `/api/usage` reports `fiveHour.usedPercent` < 45, so the chest has gold.
+  - the fast helper checks `/api/usages` for both provider windows below 60% used, so both chests have gold. The legacy Bash helper checks the latest single report below 45%.
 
   The demo's 5-hour window lasts only 3 minutes, so the chest drains and refills about every 3
   minutes. "needs you" comes and goes in under a minute. A failed `pick.js` eval counts as a bad
@@ -74,9 +78,8 @@ cp "$TEMP/aq-media/screenshot.png" "$TEMP/aq-media/demo.gif" docs/
   so the page clock is paused instead. After `__freeze()`, `performance.now`, `Date.now` and
   `requestAnimationFrame` are virtual, and `__step(2)` advances them two 1/30 s ticks per
   screenshot.
-  - The ticks are 1/30 s because `main.js` caps a frame at 50 ms (`MAX_DT`). A single 1/15 s step
-    would be clipped and slow the motion.
-  - `Date.now` has to be virtual too. Otherwise the chest's reset time passes in real time
+  - The ticks are 1/30 s so the capped render scheduler sees enough timer/frame ticks. The production simulation subdivides elapsed time to preserve swim speed.
+  - `Date.now` has to be virtual too. Otherwise the chests' reset times passes in real time
     mid-capture and it greys out as "reset · awaiting update".
   - CSS animations have to follow it as well. They run on the real clock, so the Schools swatch
     pulse played about 28x too fast in the GIF (2026-10-22) and looked like frantic blinking. Each

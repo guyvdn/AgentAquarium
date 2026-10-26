@@ -33,15 +33,17 @@ function harness() {
   return { motion, draws, pending, advance };
 }
 
-test('an unchanged scene has no callbacks scheduled after the burst', () => {
+test('quiet visible scenes keep swimming at a lower capped cadence', () => {
   const h = harness();
   h.motion.invalidate(true);
   h.advance(4000);
-  assert.equal(h.draws.at(-1).animate, false);
-  assert.equal(h.pending.size, 0);
-  const count = h.draws.length;
-  h.advance(60000);
-  assert.equal(h.draws.length, count);
+  const before = h.draws.length;
+  h.advance(1000);
+  const idleFrames = h.draws.slice(before);
+  assert.ok(idleFrames.length >= 10 && idleFrames.length <= 13);
+  assert.ok(idleFrames.every(frame => frame.animate && frame.dt > 0.05));
+  assert.ok(idleFrames.reduce((elapsed, frame) => elapsed + frame.dt, 0) >= 0.9);
+  assert.equal(h.pending.size, 1);
 });
 
 test('continuous updates cannot exceed the animation cap', () => {
@@ -66,9 +68,10 @@ test('hiding cancels pending animation and showing does not replay hidden time',
   assert.equal(h.draws.length, count);
   h.motion.setHidden(false);
   h.advance(100);
-  assert.equal(h.draws.at(-1).dt, 0);
-  assert.equal(h.draws.at(-1).animate, false);
-  assert.equal(h.pending.size, 0);
+  assert.equal(h.draws[count].dt, 0);
+  assert.ok(h.draws.slice(count).every(frame => frame.dt < 0.25));
+  assert.equal(h.draws.at(-1).animate, true);
+  assert.equal(h.pending.size, 1);
 });
 
 test('reduced motion draws fresh state once without animating', () => {
@@ -91,14 +94,15 @@ test('changing motion preferences cancels an animation in progress', () => {
   assert.equal(h.pending.size, 0);
   h.motion.setReduced(false);
   h.advance(100);
-  assert.equal(h.pending.size, 0);
+  assert.equal(h.pending.size, 1);
   h.motion.invalidate(true);
   h.advance(100);
   assert.equal(h.draws.at(-1).animate, true);
 });
 
-test('pointer invalidations coalesce into a single still frame', () => {
+test('pointer invalidations coalesce into a single still frame in reduced motion', () => {
   const h = harness();
+  h.motion.setReduced(true);
   for (let i = 0; i < 20; i++) h.motion.invalidate();
   h.advance(100);
   assert.equal(h.draws.length, 1);

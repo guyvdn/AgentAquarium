@@ -1,0 +1,7 @@
+Claude Code and Codex running across several projects. Which agent needs you next?
+
+I built Agent Aquarium: every coding session is a fish, its subagents form a school, and a diver swims to whichever agent is waiting on you. Claude and Codex each have their own usage chest, so you can see both limits at a glance.
+
+Works with terminal sessions and T3 Code. Open source, reads local session files, and keeps swimming with capped rendering.
+
+https://github.com/guyvdn/AgentAquarium

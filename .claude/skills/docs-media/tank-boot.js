@@ -15,14 +15,9 @@
 //    label of window.__follow, so the tooltip and the highlighted Schools row stay up.
 (async () => {
   const html = await (await fetch('/')).text();
-  const nativeRaf = window.requestAnimationFrame.bind(window);
   const nativeNow = performance.now.bind(performance);
-  const nativeDateNow = Date.now.bind(Date);
-  const S = (window.__S = { frozen: false, vt: 0, vt0: 0, rt0: 0, d0: 0, queue: [], pending: [] });
-  performance.now = () => (S.frozen ? S.vt : nativeNow());
-  Date.now = () => (S.frozen ? S.d0 + (S.vt - S.vt0) : nativeDateNow());
-  window.requestAnimationFrame = cb => (S.frozen ? (S.queue.push(cb), 1) : nativeRaf(cb));
-
+  const clock = window.__installCaptureClock();
+  const S = (window.__S = { frozen: false, vt0: 0, rt0: 0, pending: [] });
   const NativeES = window.EventSource;
   class PacedEventSource extends EventTarget {
     constructor(url) {
@@ -46,11 +41,11 @@
   window.EventSource = PacedEventSource;
 
   window.__freeze = () => {
+    clock.freeze();
     S.frozen = true;
-    S.vt = S.vt0 = S.rt0 = nativeNow();
-    S.d0 = nativeDateNow();
+    S.vt0 = S.rt0 = clock.vt;
     // Animations running already carry on from where they are, rather than restarting at 0.
-    for (const a of document.getAnimations()) born.set(a, S.vt - (a.currentTime ?? 0));
+    for (const a of document.getAnimations()) born.set(a, clock.vt - (a.currentTime ?? 0));
     syncAnimations();
     return 'frozen';
   };
@@ -59,23 +54,20 @@
   const born = new WeakMap();
   const syncAnimations = () => {
     for (const a of document.getAnimations()) {
-      if (!born.has(a)) born.set(a, S.vt);
+      if (!born.has(a)) born.set(a, clock.vt);
       a.pause();
-      a.currentTime = S.vt - born.get(a);
+      a.currentTime = clock.vt - born.get(a);
     }
   };
   // ms defaults to 1/30 s: main.js caps a frame at 50 ms, so bigger steps would slow the motion.
   window.__step = (n = 1, ms = 1000 / 30) => {
     for (let i = 0; i < n; i++) {
-      S.vt += ms;
-      const due = S.rt0 + (S.vt - S.vt0);
+      const due = S.rt0 + (clock.vt + ms - S.vt0);
       while (S.pending.length && S.pending[0].t <= due) {
         const p = S.pending.shift();
         p.target.dispatchEvent(p.ev);
       }
-      const q = S.queue;
-      S.queue = [];
-      for (const cb of q) cb(S.vt);
+      clock.step(ms);
     }
     syncAnimations();
     return S.pending.length;

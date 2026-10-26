@@ -1,7 +1,8 @@
-// Demand-driven animation: short, capped bursts after data changes, then no scheduled frames.
-const FRAME_MS = 1000 / 24;
+// Visible fish keep swimming: 24 fps after updates, 12 fps when quiet; hidden/reduced views stay still.
+const ACTIVE_FRAME_MS = 1000 / 24;
+const IDLE_FRAME_MS = 1000 / 12;
 const ANIMATE_FOR_MS = 3000;
-const MAX_DT = 0.05;
+const MAX_DT = 0.25;
 
 export class MotionLoop {
   constructor(draw, platform = {}) {
@@ -49,8 +50,9 @@ export class MotionLoop {
 
   schedule() {
     if (this.hidden || this.frame !== null || this.timer !== null) return;
-    if (!this.dirty && !this.wasAnimating && this.now() >= this.until) return;
-    const delay = this.wasAnimating ? Math.max(0, FRAME_MS - (this.now() - this.last)) : 0;
+    if (this.reduced && !this.dirty) return;
+    const frameMs = this.now() < this.until ? ACTIVE_FRAME_MS : IDLE_FRAME_MS;
+    const delay = this.wasAnimating ? Math.max(0, frameMs - (this.now() - this.last)) : 0;
     if (delay > 0) {
       this.timer = this.setTimer(() => {
         this.timer = null;
@@ -63,12 +65,13 @@ export class MotionLoop {
     this.frame = this.requestFrame(now => {
       this.frame = null;
       if (this.hidden) return;
-      const animate = !this.reduced && now < this.until;
+      const animate = !this.reduced;
+      const active = animate && now < this.until;
       const dt = this.wasAnimating ? Math.min(MAX_DT, (now - this.last) / 1000) : 0;
       this.last = now;
       this.dirty = false;
       this.wasAnimating = animate;
-      this.draw(animate ? dt : 0, animate);
+      this.draw(animate ? dt : 0, animate, active);
       this.schedule();
     });
   }

@@ -1,36 +1,40 @@
 # Agent Aquarium
 
-A live aquarium of your AI coding agents. Each session is a school of fish: the parent leads, its subagents swim with it.
+A live aquarium for **Claude Code and Codex**, in your terminal or T3 Code. Each session is a fish; its subagents swim along as a school. See who is working, who needs you, and how much usage each provider has left.
 
-![The demo tank: fish swimming, the diver waiting at the session that needs you, and a hovered fish with its tooltip and highlighted row](docs/demo.gif)
+![Claude Code and Codex sessions swimming together, with subagent schools, the diver and separate usage chests](docs/demo.gif)
 
-| Signal | Fish |
+The aquarium reads local session logs. Your agents need no changes, and it makes no usage API calls.
+
+| Signal | What you see |
 |---|---|
-| Context size (tokens) | Body length (sqrt scale) |
-| Activity (working, tool calls/min) | Swim speed, tail beat, bubbles |
-| Turn finished, your move | Slow drift near the sand |
-| Turn finished, but background work it started is still running ("background work") | The same drift, without the diver: it wakes again when that work reports back |
-| Blocked mid-turn on you (permission prompt, question, plan approval) | Same, with a pulsing amber glow |
-| Generation | Hue = session; each generation is less saturated and darker. Parents also glow, wear two pale bands and a tall dorsal fin |
-| Tool error | Red flash |
-| Compaction | Squeeze + burst of bubbles; the fish shrinks |
+| Context size (tokens) | Fish body length, on a square-root scale |
+| Working and tool calls | Faster swimming, quicker tail beats and bubbles |
+| Turn finished, your move | Gentle swimming near the sand |
+| Background work still running | The same gentle swim, without the diver |
+| Blocked on your input | An amber glow; the diver comes here first |
+| Session and generation | A shared school colour; descendants are darker. Parents have two pale bands and a tall dorsal fin |
+| Tool error | A red flash |
+| Compaction | A squeeze and burst of bubbles; the fish shrinks |
 | Subagent finished | Swims off and fades |
 
-The treasure chests on the sand show each provider's **5-hour limit**, labelled **Claude** and **Codex**: the gold is what is left, the lid opens as far as there is gold to show, and spending lets coins float away. The limit's numbers only change every 20 minutes or so, so the coins follow the tokens your agents spend instead, one per 20k weighted the way API pricing weighs them (a cache read a tenth of fresh input, output 5×): six busy agents send up six times the coins of one. It glows amber below 30% and pulses red below 10%; when the window resets it refills with a burst. Grey means the numbers are old (over 30 minutes, or the window has reset since). Hover either chest for its weekly limit too. Each chest only releases coins for its own provider. Codex limits come from rate-limit reports in local session logs and refresh as Codex runs; no usage API calls are made.
+**Two providers, two treasure chests.** The chests labelled **Claude** and **Codex** show what is left of each provider's five-hour limit. Less gold means less remaining usage; the glow turns amber below 30% and red below 10%. Hover either chest for its weekly limit and reset time. Grey means its last report is stale. Each chest appears once its provider has reported a five-hour limit.
 
-The diver is **you**. It swims to whichever agent has waited on you longest, agents blocked mid-turn before ones that merely finished, and climbs back up the boat's ladder when nobody waits. The badge over its head counts who is waiting, amber when one of them is blocked; hover it for the list with how long each has waited. "Blocked" comes from Claude Code's live-session registry (`status: "waiting"`, interactive CLI only) and, for SDK hosts such as T3 Code, from an `AskUserQuestion` or `ExitPlanMode` still unanswered in the transcript. A permission prompt in an SDK host leaves no trace in either: install the plugin below to see those too. Without it, such a session shows as working until the prompt is answered. A session whose turn ended while a background command, subagent or monitor it started still runs is not waiting on you: Claude Code wakes it when that work reports back, so the diver leaves it alone. The transcript says when it does: a `<task-notification>` with a final status, a subagent's hand-back, or a `TaskStop`. Work that never reports back is let go when the session's process restarts, when a monitor's own timeout passes, or after 2 hours.
+Coins float away as that provider's agents spend tokens. This is a price-weighted activity signal, rather than an exact bill: cached input counts less than fresh input, and output counts more. Claude's limit comes from its local usage cache; Codex's comes from the rate-limit reports in its session logs.
 
-A session's fish is labelled with its title: Claude Code's own, or for T3 Code the title in its sidebar (see `T3StateFile` below), cut short with "…" when it is long. A session without a title yet shows its repo.
+**The diver is you.** It swims to whichever agent has waited longest, prioritising agents blocked mid-turn over those whose turn simply finished. Its badge counts who is waiting; hover it for the list. When nobody needs you, it returns to the boat. Background work does not summon it while that work can still wake the agent.
 
-Hover a fish for its context, status, last tool, tool calls, errors and compactions. The **Schools** list on the right mirrors the tank: each row shows the label, with where it runs below it (host · repo · branch, such as `T3 Code · web-shop · coupons`). A subagent's row shows its task, with its type below. The dot of every session the diver would come for glows slowly in its own colour. Hovering a row lights up its fish, and hovering a fish lights up its row.
+**The Schools list mirrors the tank.** T3 Code sessions use their sidebar titles for both providers. A session without a title shows its repo. Each row adds the provider or host, repo and branch; subagents show their task. Hover a row to highlight its fish, or a fish for context, status and tool activity. Waiting dots glow during active updates and use steady rings in quiet scenes.
 
-![Demo sessions labelled with their titles: the diver at "Checkout coupon codes", which needs you, its subagents listed by task, the chest at 72% left, and the hovered "Postgres failover runbook" fish with its tooltip and highlighted row](docs/screenshot.png)
+Claude Code can report permission prompts through its live-session registry or the optional hook below. Codex's explicit user-input requests also appear as blocked; its permission approvals are not currently recorded in its rollout logs.
+
+![A mixed Claude Code and Codex demo tank with parent fish, subagents, a waiting-session diver, and two labelled five-hour usage chests](docs/screenshot.png)
 
 ## Run
 
 ```bash
 dotnet run --project src/AgentAquarium --launch-profile live   # your real Claude Code and Codex sessions
-dotnet run --project src/AgentAquarium --launch-profile demo   # synthetic agents and usage, for working on the visuals
+dotnet run --project src/AgentAquarium --launch-profile demo   # mixed Claude/Codex demo with synthetic agents and usage
 ```
 
 Open http://localhost:5180.
@@ -64,17 +68,17 @@ Settings are in `src/AgentAquarium/appsettings.json`:
 
 ## Rendering and power use
 
-The canvas animates at up to 24 fps for three seconds after a session changes, then stays still until another change, hover, resize or clock update. Heartbeats and the rolling activity score do not wake it. Status, context, tool calls and errors still update live; a quiet working session remains labelled working even while its fish rests. Waiting dots use steady rings while the scene is still.
+Fish keep swimming while the aquarium is visible. Rendering is capped at **24 fps** after session updates and **12 fps** when quiet; the simulation keeps the same swim speed at either cadence. Unchanged snapshots do not rebuild the Schools list. Quiet waiting dots use steady rings to avoid an extra continuous CSS animation.
 
-Hidden tabs stop scheduling frames and catch up to the latest state when shown, without replaying missed animations. The operating system's `prefers-reduced-motion` setting uses still frames throughout. Chest resets and freshness labels update on a lightweight clock timer. See [the measured before/after results](docs/performance.md).
+Hidden tabs stop scheduling frames and resume from their latest state without replaying missed time. The operating system's `prefers-reduced-motion` setting uses still frames, with live status and hover updates. See [the measured performance results](docs/performance.md), including the continuous-motion measurements.
 
 ## Development
 
 ```bash
 dotnet build && dotnet test          # Meziantou + .NET analyzers (latest-all), warnings are errors
 npm install && npm run lint          # ESLint, Stylelint, html-validate for wwwroot
-npm run test:js                      # animation scheduler tests
-npm run format                       # Prettier; dotnet format for C#
+npm run test:js                      # animation and chest regression tests
+npm run format                      # Prettier; dotnet format for C#
 ```
 
 ## How it works
@@ -90,6 +94,7 @@ flowchart LR
   D[DemoSource] --> S
   CC --> S[IAgentSink<br/>AgentRegistry]
   U[~/.claude.json<br/>cachedUsageUtilization] --> CU[ClaudeUsageSource] --> UB[IUsageSink<br/>UsageBoard]
+  CS --> UB
   S -->|SSE /api/agents/stream, 2 Hz| B[Browser canvas<br/>boids + procedural fish]
   UB -->|SSE event: usage, on change| B
 ```

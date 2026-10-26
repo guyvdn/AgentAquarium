@@ -19,13 +19,13 @@ public sealed class DemoSource(IAgentSink sink, IUsageSink usage, IOptions<DemoO
     private static readonly TimeSpan DemoWindow = TimeSpan.FromMinutes(3);
 
     // What a real session shows: its title, then host · project · branch. Short enough to fit above a fish.
-    private static readonly (string Title, string Detail)[] Sessions =
+    private static readonly (string Title, string Detail, string Source)[] Sessions =
     [
-        ("Invoice PDF rounding fix", "CLI · billing-api · fix/rounding"),
-        ("Checkout coupon codes", "T3 Code · web-shop · coupons"),
-        ("Postgres failover runbook", "T3 Code · infra · main"),
-        ("Offline sync for orders", "CLI · mobile-app · offline-sync"),
-        ("Search for API reference", "T3 Code · docs-site · search"),
+        ("Invoice PDF rounding fix", "Claude Code · billing-api · fix/rounding", "claude-code"),
+        ("Checkout coupon codes", "T3 Code · Codex · web-shop · coupons", "codex"),
+        ("Postgres failover runbook", "T3 Code · Claude Code · infra · main", "claude-code"),
+        ("Offline sync for orders", "Codex · mobile-app · offline-sync", "codex"),
+        ("Search for API reference", "T3 Code · Claude Code · docs-site · search", "claude-code"),
     ];
 
     private static readonly string[] Tools = ["Read", "Edit", "Bash", "Grep", "Glob", "WebFetch", "Write"];
@@ -37,8 +37,7 @@ public sealed class DemoSource(IAgentSink sink, IUsageSink usage, IOptions<DemoO
     private readonly Random _random = new();
     private readonly List<Fake> _agents = [];
     private int _next;
-    private double _fiveHourUsed;
-    private DateTimeOffset _fiveHourResets;
+    private readonly DemoLimit[] _limits = [new("claude-code"), new("codex")];
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -47,8 +46,21 @@ public sealed class DemoSource(IAgentSink sink, IUsageSink usage, IOptions<DemoO
 
         for (var i = 0; i < options.Value.Sessions; i++)
             Spawn(null);
-        _fiveHourUsed = 20 + _random.NextDouble() * 40;
-        _fiveHourResets = clock.GetUtcNow() + DemoWindow;
+        foreach (var limit in _limits)
+        {
+            limit.Used = 10 + _random.NextDouble() * 15;
+            limit.Resets = clock.GetUtcNow() + DemoWindow;
+        }
+        // Give the demo an immediately readable school and a question to attend to.
+        foreach (var parent in _agents.Take(2).ToList())
+            Spawn(parent);
+        if (_agents.FirstOrDefault(a => a.Depth == 0 && a.Source == "codex") is { } waiting)
+        {
+            Spawn(waiting);
+            waiting.Working = false;
+            waiting.StateLockedUntil = clock.GetUtcNow() + TimeSpan.FromMinutes(1);
+            sink.Observe(waiting.Id, new StatusObserved(clock.GetUtcNow(), AgentStatus.Waiting, "a question"));
+        }
 
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500), clock);
         while (await timer.WaitForNextTickAsync(stoppingToken))
@@ -86,7 +98,7 @@ public sealed class DemoSource(IAgentSink sink, IUsageSink usage, IOptions<DemoO
 
             // Mains alternate between working and waiting on the user, finished or blocked mid-turn;
             // subagents work, then finish.
-            if (agent.Depth == 0 && _random.NextDouble() < 0.01)
+            if (agent.Depth == 0 && now >= agent.StateLockedUntil && _random.NextDouble() < 0.01)
             {
                 agent.Working = !agent.Working;
                 sink.Observe(agent.Id, agent.Working
@@ -109,17 +121,20 @@ public sealed class DemoSource(IAgentSink sink, IUsageSink usage, IOptions<DemoO
     /// <summary>Busy agents spend the window; it refills when it resets.</summary>
     private void ReportUsage(DateTimeOffset now)
     {
-        if (now >= _fiveHourResets)
+        foreach (var limit in _limits)
         {
-            _fiveHourUsed = 0;
-            _fiveHourResets = now + DemoWindow;
+            if (now >= limit.Resets)
+            {
+                limit.Used = 0;
+                limit.Resets = now + DemoWindow;
+            }
+            limit.Used = Math.Min(100, limit.Used + _agents.Count(a => a.Working && a.Source == limit.Source) * _random.NextDouble() * 0.15);
+            usage.Report(new UsageSnapshot(
+                new UsageWindow(Math.Round(limit.Used), limit.Resets),
+                new UsageWindow(limit.Source == "codex" ? 18 : 37, now.AddDays(3)),
+                now,
+                limit.Source));
         }
-        _fiveHourUsed = Math.Min(100, _fiveHourUsed + _agents.Count(a => a.Working) * _random.NextDouble() * 0.15);
-        usage.Report(new UsageSnapshot(
-            new UsageWindow(Math.Round(_fiveHourUsed), _fiveHourResets),
-            new UsageWindow(37, now.AddDays(3)),
-            now,
-            "demo"));
     }
 
     private int Children(Fake parent) => _agents.Count(a => a.ParentId == parent.Id);
@@ -137,14 +152,22 @@ public sealed class DemoSource(IAgentSink sink, IUsageSink usage, IOptions<DemoO
 
         var sessionId = parent?.SessionId ?? id;
         agent.SessionId = sessionId;
-        var (label, detail) = parent is null
+        var (label, detail, source) = parent is null
             ? Sessions[(_next - 1) % Sessions.Length]
-            : (SubagentTasks[_random.Next(SubagentTasks.Length)], SubagentTypes[_random.Next(SubagentTypes.Length)]);
-        sink.Upsert(new AgentDescriptor(id, parent?.Id, sessionId, "demo", label, detail, depth));
+            : (SubagentTasks[_random.Next(SubagentTasks.Length)], SubagentTypes[_random.Next(SubagentTypes.Length)], parent.Source);
+        agent.Source = source;
+        sink.Upsert(new AgentDescriptor(id, parent?.Id, sessionId, source, label, detail, depth));
 
         var now = clock.GetUtcNow();
         sink.Observe(id, new ContextObserved(now, agent.Tokens));
         sink.Observe(id, new StatusObserved(now, AgentStatus.Working));
+    }
+
+    private sealed class DemoLimit(string source)
+    {
+        public string Source { get; } = source;
+        public double Used { get; set; }
+        public DateTimeOffset Resets { get; set; }
     }
 
     private sealed class Fake(string id, string? parentId, int depth)
@@ -153,9 +176,11 @@ public sealed class DemoSource(IAgentSink sink, IUsageSink usage, IOptions<DemoO
         public string? ParentId { get; } = parentId;
         public int Depth { get; } = depth;
         public string SessionId { get; set; } = id;
+        public string Source { get; set; } = "claude-code";
         public long Tokens { get; set; }
         public double Busyness { get; init; }
         public bool Working { get; set; } = true;
+        public DateTimeOffset StateLockedUntil { get; set; }
         public bool Done { get; set; }
     }
 }

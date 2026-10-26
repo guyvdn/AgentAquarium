@@ -137,7 +137,8 @@ canvas#tank {
   }
 }
 
-.motion-paused .panel .swatch.pulse {
+.motion-paused .panel .swatch.pulse,
+.motion-idle .panel .swatch.pulse {
   animation: none;
   box-shadow:
     0 0 0 1.5px #031524,

@@ -2,6 +2,10 @@ import js from '@eslint/js';
 import globals from 'globals';
 
 export default [
+  {
+    files: ['.claude/skills/docs-media/**/*.mjs'],
+    languageOptions: { sourceType: 'module', globals: { ...globals.node, ...globals.browser } },
+  },
   { ignores: ['**/node_modules/**', '**/bin/**', '**/obj/**'] },
   js.configs.recommended,
   {

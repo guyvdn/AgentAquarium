@@ -64,7 +64,7 @@ if ! dotnet build "$REPO/src/AgentAquarium" -o "$BIN" -nologo >"$OUT/build.log" 
   exit 1
 fi
 
-( cd "$BIN" && ASPNETCORE_ENVIRONMENT=Development Sources__ClaudeCode__Enabled=false Sources__Demo__Enabled=true \
+( cd "$BIN" && ASPNETCORE_ENVIRONMENT=Development Sources__ClaudeCode__Enabled=false Sources__Codex__Enabled=false Sources__Demo__Enabled=true \
     ./AgentAquarium.exe --urls "$URL" --Sources:Demo:Sessions=4 >"$OUT/server.log" 2>&1 ) &
 SERVER_JOB=$!
 up=false
@@ -77,7 +77,7 @@ fi
 
 "${AB[@]}" set viewport 1600 900 >/dev/null
 "${AB[@]}" open "$URL/styles.css" >/dev/null # any same-origin page; tank-boot.js replaces it
-"${AB[@]}" eval "$(cat "$HERE/tank-boot.js")" >/dev/null
+"${AB[@]}" eval "$(cat "$HERE/virtual-clock.js" "$HERE/tank-boot.js")" >/dev/null
 if [ "$HOVER" = 1 ]; then "${AB[@]}" eval "window.__hover = true" >/dev/null; fi
 "${AB[@]}" wait 20000 >/dev/null # let the fish spread and the first subagents spawn
 

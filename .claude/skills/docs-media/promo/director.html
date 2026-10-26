@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Agent Aquarium — brag</title>
+    <style>
+      :root {
+        --ink: #e6f4ff;
+        --ink-dim: #9cc3dc;
+        --glass: rgb(6 28 48 / 70%);
+        --glass-edge: rgb(150 210 255 / 22%);
+        --ok: #5ef2a0;
+        --wait: #ffb347;
+        --gold: #f5c542;
+        --display: 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1080px;
+        height: 1080px;
+        overflow: hidden;
+        background: #031524;
+        color: var(--ink);
+        font-family: var(--display);
+      }
+      #stage {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+      }
+      #tank {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 1080px;
+        height: 1080px;
+        border: 0;
+        transform-origin: 0 0;
+      }
+      #shade {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: radial-gradient(ellipse at 50% 50%, rgb(2 12 22 / 35%), rgb(2 12 22 / 92%));
+      }
+      #vignette {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: radial-gradient(ellipse at 50% 45%, transparent 55%, rgb(1 8 16 / 55%));
+      }
+      .layer {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+      .line {
+        position: absolute;
+        left: 0;
+        right: 0;
+        text-align: center;
+        white-space: nowrap;
+      }
+      .w {
+        display: inline-block;
+        will-change: transform, opacity;
+      }
+      .hook {
+        font-size: 62px;
+        font-weight: 650;
+        letter-spacing: -0.02em;
+        line-height: 1.1;
+        text-shadow: 0 4px 30px rgb(0 0 0 / 60%);
+      }
+      .hook.l2 {
+        font-weight: 700;
+      }
+      .amber {
+        color: var(--wait);
+        text-shadow:
+          0 0 28px rgb(255 179 71 / 55%),
+          0 4px 30px rgb(0 0 0 / 60%);
+      }
+      .gold {
+        color: var(--gold);
+        text-shadow:
+          0 0 24px rgb(245 197 66 / 45%),
+          0 4px 24px rgb(0 0 0 / 60%);
+      }
+      .green {
+        color: var(--ok);
+      }
+
+      /* Captions sit in a glass card, like the app's own HUD. */
+      .card {
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 26px 40px 30px;
+        background: var(--glass);
+        border: 1px solid var(--glass-edge);
+        border-radius: 22px;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 20px 60px rgb(0 0 0 / 35%);
+        text-align: center;
+        white-space: nowrap;
+      }
+      .card .big {
+        font-size: 58px;
+        font-weight: 650;
+        letter-spacing: -0.015em;
+        line-height: 1.12;
+      }
+      .card .small {
+        margin-top: 10px;
+        font-size: 36px;
+        font-weight: 450;
+        color: var(--ink-dim);
+        line-height: 1.2;
+      }
+      .title {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 22px;
+      }
+      .title img {
+        width: 92px;
+        height: 92px;
+        border-radius: 22px;
+      }
+      .title .name {
+        font-size: 84px;
+        font-weight: 700;
+        letter-spacing: -0.025em;
+      }
+      .url {
+        font-size: 34px;
+        font-weight: 600;
+        color: var(--ink);
+        margin-top: 22px;
+        padding: 12px 24px;
+        border-radius: 14px;
+        background: rgb(94 242 160 / 12%);
+        border: 1px solid rgb(94 242 160 / 35%);
+        display: inline-block;
+      }
+      .url .dim {
+        color: var(--ink-dim);
+        font-weight: 450;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <iframe id="tank" src="/promo/tank.html" title="Agent Aquarium"></iframe>
+      <div id="vignette"></div>
+      <div id="shade"></div>
+    </div>
+
+    <!-- 1. Hook -->
+    <div class="layer" id="hook">
+      <div class="line hook l1" style="top: 420px" data-in="0.15">Claude Code and Codex running.</div>
+      <div class="line hook l2" style="top: 506px" data-in="1.05">Which one <span class="amber">needs you?</span></div>
+    </div>
+
+    <!-- 2. Reveal -->
+    <div class="layer" id="reveal">
+      <div class="card" style="top: 372px">
+        <div class="title" data-in="3.2">
+          <img src="/icons/icon.svg" alt="" /><span class="name">Agent Aquarium</span>
+        </div>
+        <div class="small" data-in="3.65">Your AI coding agents, as a live aquarium.</div>
+      </div>
+    </div>
+
+    <!-- 3. Schools -->
+    <div class="layer" id="schools">
+      <div class="card" style="top: 792px">
+        <div class="big" data-in="6.45">Every session is a fish.</div>
+        <div class="small" data-in="7.0">Its subagents swim along as a school.</div>
+      </div>
+    </div>
+
+    <!-- 4. Diver -->
+    <div class="layer" id="diver">
+      <div class="card" style="top: 792px">
+        <div class="big" data-in="10.15">The diver is <span class="amber">you.</span></div>
+        <div class="small" data-in="10.7">It swims to the agent that needs you.</div>
+      </div>
+    </div>
+
+    <!-- 5. Chest -->
+    <div class="layer" id="chest">
+      <div class="card" style="top: 96px">
+        <div class="big" data-in="14.55"><span class="gold">Gold</span> = your 5-hour limits.</div>
+        <div class="small" data-in="15.05">Claude and Codex, each with its own chest.</div>
+      </div>
+    </div>
+
+    <!-- 6. Outro -->
+    <div class="layer" id="outro">
+      <div class="card" style="top: 330px; padding: 40px 56px 44px">
+        <div class="title" data-in="18.1">
+          <img src="/icons/icon.svg" alt="" /><span class="name">Agent Aquarium</span>
+        </div>
+        <div class="small" data-in="18.45">See every agent at a glance.</div>
+        <div data-in="18.85">
+          <span class="url">github.com/<span class="dim">guyvdn/</span>AgentAquarium</span>
+        </div>
+        <div class="small" data-in="19.2" style="font-size: 28px; margin-top: 18px">
+          Open source · Claude Code + Codex · CLI + T3 Code
+        </div>
+      </div>
+    </div>
+
+    <script src="director.js"></script>
+  </body>
+</html>

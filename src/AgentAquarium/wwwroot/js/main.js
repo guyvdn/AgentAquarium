@@ -46,11 +46,18 @@ let tooltipFor = null; // the agent snapshot the tooltip was last rendered for
 let markupTooltip = ''; // the chest's or diver's last tooltip markup
 
 let sceneTime = 0;
-const motion = new MotionLoop((dt, animate) => {
+const motion = new MotionLoop((dt, animate, active) => {
   document.documentElement.classList.toggle('motion-paused', !animate);
+  document.documentElement.classList.toggle('motion-idle', animate && !active);
   if (animate) {
-    sceneTime += dt;
-    simulate(dt, sceneTime);
+    // Integrate at small steps even when the render cadence drops, preserving swim speed.
+    let remaining = dt;
+    do {
+      const step = Math.min(0.05, remaining);
+      sceneTime += step;
+      simulate(step, sceneTime);
+      remaining -= step;
+    } while (remaining > 0.000001);
   } else settle();
   render(sceneTime);
   updateTooltip();
