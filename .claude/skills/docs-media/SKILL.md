@@ -1,133 +1,112 @@
 ---
 name: docs-media
-description: How to regenerate the README media, docs/screenshot.png and docs/demo.gif, from the demo source. Use when the screenshot or demo GIF is stale after a visual change (new creature, HUD element, state colour), when asked to update, retake or re-record them, or when capturing the tank for docs in any other way.
+description: Regenerate Agent Aquarium's README screenshot, animated GIF and square promotion video after visual or provider changes, using fictional mixed Claude/Codex sessions and the real tank renderer.
 ---
 
 # Docs media
 
-`docs/screenshot.png` (1600x900 PNG, ~300 KB) and `docs/demo.gif` (960x540, 12 fps, 9 s, ~4 MB)
-are both shot from the demo source. Retake them whenever the tank gains something a reader should
-see. As of 2026-10-26 that means: sessions labelled with their titles and subagents with their
-tasks, the diver with its badge, both labelled usage chests, amber "needs you", subagent schools, the slow glow on
-the Schools dots of the sessions the diver comes for, and coins floating away from their provider's chest from token
-spend (the demo emits `SpendObserved`). No fish is hovered: the user found the tooltip distracting
-in the README media (2026-10-22). `HOVER=1` brings it back, with its highlighted Schools row.
+Use the current app modules and fictional data. Show both providers, parent/subagent schools,
+labelled Claude and Codex chests, and the diver at a waiting session. Keep labels and the Schools
+panel readable. **No hovered fish or tooltip** in README media: the user found it distracting.
 
-## Run it
+The user also rejected fish freezing between updates. Visible fish keep swimming; current caps
+are 24 fps after updates and 12 fps when quiet. Captures must reflect that behaviour. Only hidden
+and reduced-motion views should be still. See [the performance measurements](../../../docs/performance.md).
 
-The current pipeline uses Node, `playwright-core` (installed by `npm install`), Microsoft Edge, ffmpeg and the .NET SDK. It never uses the live port 5180. Both real sources are disabled in capture demos.
+## README screenshot and GIF
+
+Prerequisites: .NET SDK, Node, `npm ci`, Microsoft Edge and ffmpeg. Run from the repository root.
 
 ```powershell
 dotnet build src/AgentAquarium -o artifacts/agent-aquarium-media/bin -p:UseAppHost=false
 node .claude/skills/docs-media/capture.mjs http://localhost:5205 artifacts/agent-aquarium-media/docs artifacts/agent-aquarium-media/bin/AgentAquarium.dll
 ```
 
-The optional DLL argument starts a fresh demo on an unused spare port and stops that owned process after capture. Without it, the URL must already serve the demo. The helper waits for a readable scene with subagents, a waiting session and gold in both chests, then uses capture-only module access to spread roots and children clear of the Schools panel. Their subsequent swimming uses the real simulation. No tooltips are shown.
+The optional DLL argument starts a fresh, owned demo server on an unused spare port, with both
+real sources disabled, and stops it after capture. Without that argument, the URL must already
+serve the mixed-provider demo. Never use 5180 or stop the user's live aquarium.
 
-It writes `screenshot.png`, `demo.gif` and temporary frame PNGs to the output folder. Inspect both deliverables before copying them to `docs/`. Keep the GIF below 5 MB. A typical run takes about one minute; an unsuitable already-running random demo can time out, so use the fresh-DLL argument.
+Prefer a fresh demo: the random scene can otherwise have too many subagents, no blocked session,
+or empty chests. Startup includes a Codex question held for one minute. The helper waits for
+7-16 rows, someone needing input, and both provider limits below 60% used. It then sets a
+capture-only starting layout clear of the panel; subsequent movement is the real simulation.
 
-The older Git Bash `capture.sh` entry point remains supported. It builds in a temp folder and runs agent-browser; its slower screenshot loop can take 5-15 minutes. It now disables Codex as well as Claude and loads the shared virtual clock before `tank-boot.js`. Commit that script with its executable bit.
+Outputs:
 
-### Promotion video
+- `screenshot.png`: 1600 x 900, about 330 KB.
+- `demo.gif`: 960 x 540, 12 fps, nine seconds. The helper rejects a GIF above 5 MB.
+- `frames/`: temporary PNGs, not for committing.
 
-The previously external promotion sources now live in `promo/` beside this skill. They preserve the approved 21.5-second square format and generated soundtrack while showing Claude and Codex together, subagent schools, the diver, two chests and the repository link. Fictional data only.
+Inspect the still and animated GIF before copying them to `docs/`. Check that the diver does not
+hide the waiting label, both chests are legible, the fish move, and no tooltip appears. The GIF's
+jump at the loop boundary is accepted. Its swatch glow should breathe at the real 2.4-second
+period, not blink rapidly; measure several frames if needed. The 2026-10-26 take measured 2.42 s.
+
+The GIF uses a 128-colour palette, Bayer dithering and a 960-pixel width to stay under the size
+budget. About one minute is typical for the fast capture, excluding build time.
+
+## Promotion video
+
+The reproducible sources live in `promo/`. Preserve the approved square 1080 x 1080 format,
+30 fps, 21.5-second duration, glass captions and fictional sessions. The sequence shows Claude
+and Codex, a school forming, the diver, two usage chests and the repository link. The diver shot
+uses 2x simulation speed, as in the approved original, so it can arrive within the short shot.
 
 ```powershell
-# Serve the current app with the promo assets (leave running during capture):
+# Leave this local server running during rendering:
 node .claude/skills/docs-media/promo/server.mjs src/AgentAquarium/wwwroot .claude/skills/docs-media/promo 5203
 # In a second terminal:
 node .claude/skills/docs-media/promo/render.mjs artifacts/agent-aquarium-media/promo-frames
 python .claude/skills/docs-media/promo/music.py artifacts/agent-aquarium-media/music.wav
-ffmpeg -y -framerate 30 -i artifacts/agent-aquarium-media/promo-frames/f%04d.jpg -i artifacts/agent-aquarium-media/music.wav -vf scale=1080:1080:flags=lanczos -c:v libx264 -crf 18 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart -shortest artifacts/agent-aquarium-media/brag.mp4
+node .claude/skills/docs-media/promo/encode.mjs artifacts/agent-aquarium-media/promo-frames artifacts/agent-aquarium-media/music.wav artifacts/agent-aquarium-media/brag.mp4
 ```
 
-Music synthesis needs numpy. Use `promo/encode.mjs <frames-dir> <original.mp4> <output.mp4>` to preserve the approved AAC soundtrack verbatim, or pass a WAV to normalise and encode a new audio track. `render.mjs` takes an optional comma-separated list of frames for still checks; the following optional argument overrides the base URL. The title-card frame is copied to the upload's first frame, matching the original video. Use that same frame as `brag.jpg`.
+Music synthesis needs numpy. To keep an already approved soundtrack exactly, pass its MP4 to
+`encode.mjs` instead of a WAV: it copies the AAC stream verbatim. A WAV is loudness-normalised
+and AAC-encoded. The encoder also writes `brag.jpg`; the renderer places that title card in the
+video's first frame, matching the approved upload thumbnail.
 
-## Capture clock
+For still checks, `render.mjs` accepts a comma-separated frame list after the output directory,
+then an optional base URL. For example: `render.mjs artifacts/promo-check 170,260,380,480,610`.
+Review the encoded video too, not just source stills. Confirm readable captions, intact URLs,
+two labelled chests, normal glow speed and no personal sessions or paths.
 
-`virtual-clock.js` is shared by the README and promo workflows. It virtualises **setTimeout/clearTimeout and requestAnimationFrame/cancelAnimationFrame**, along with `performance.now` and `Date.now`. The capped animation scheduler uses timers between frame requests, so virtualising only rAF would stall the capture. Freezing transfers already-pending callbacks rather than losing them. Regression tests run with `npm run test:js`.
+Keep the storyboard and share copy in `promo/brag-plan.md` and `promo/share-copy.txt` current.
+The latest local export is `%USERPROFILE%/Videos/agent-aquarium-brag-codex/`: `brag.mp4`,
+`brag.jpg`, `brag-plan.md` and `share-copy.txt`. Frame folders and MP4 exports stay outside Git;
+the source scripts and README PNG/GIF are versioned. Do not overwrite the original approved
+export when making a new version.
 
-## How it works, and why
+## Shared capture clock
 
-- **It builds into a temp output dir** (`dotnet build -o <work>/bin`). An app already running from
-  the worktree's `bin/` locks `AgentAquarium.exe`, and then `dotnet run` fails with MSB3026.
-- **Demo launch.** This is the same as the `demo` profile, on a spare port:
-  `ASPNETCORE_ENVIRONMENT=Development Sources__ClaudeCode__Enabled=false Sources__Codex__Enabled=false Sources__Demo__Enabled=true ./AgentAquarium.exe --urls http://localhost:5198 --Sources:Demo:Sessions=4`.
-  Never use 5180: the user's live app may be on it. Four sessions give enough schools without
-  filling the list. Don't change committed config for a shot.
-- **Getting everything in frame.** The demo is random, so `capture.sh` polls every ~3.5 s until
-  all of these hold at once:
-  - the list says "needs you", so the diver is out and the fish is amber;
-  - the list has 7-16 rows: schools with subagents, but still readable;
-  - with `HOVER=1`, there is a working root to hover;
-  - the fast helper checks `/api/usages` for both provider windows below 60% used, so both chests have gold. The legacy Bash helper checks the latest single report below 45%.
+Load `virtual-clock.js` before either boot script. It virtualises `performance.now`, `Date.now`,
+**setTimeout/clearTimeout and requestAnimationFrame/cancelAnimationFrame**. Virtualising only
+rAF stalls the capped renderer, because it waits on timers between frame requests. Freezing
+transfers pending callbacks rather than dropping them; `npm run test:js` covers that behaviour.
 
-  The demo's 5-hour window lasts only 3 minutes, so the chest drains and refills about every 3
-  minutes. "needs you" comes and goes in under a minute. A failed `pick.js` eval counts as a bad
-  poll and does not stop the run.
+README capture paces real demo SSE events against virtual time so a slow screenshot does not
+pile up tool effects. The promo uses a seeded scripted feed. Both drive CSS animations from
+the same virtual clock; real-time CSS was the cause of the earlier fast-blinking GIF. Keep small
+clock ticks so scheduled render timers and frame callbacks advance together. Production physics
+subdivides elapsed time to preserve swim speed at the quiet cadence.
 
-- **Holding the pointer on a moving fish** (`HOVER=1` only). `main.js` keeps the fish in module scope, which a page
-  script can't reach. So `tank-boot.js` wraps `CanvasRenderingContext2D.prototype.fillText` and
-  records where each root's `tokens · status` line was drawn, since `drawLabel` draws it right after
-  the name. That line is at `fish.y - 0.55 x length + 4`. Every frame the script dispatches a
-  `mousemove` 18 px below it, at `fish.y - 0.55 x length + 22`. The hit radius is
-  `max(12, 0.55 x length)`, so the point lands on the body for any root bigger than 20 px. The
-  tooltip and `markHoveredRow` follow on their own.
-- **Frame stepping.** `agent-browser record` (CDP screencast) only manages about 2 fps on a 1600x900
-  canvas, and its WebM plays that back sped up. Each `agent-browser screenshot` takes about 1.9 s,
-  so the page clock is paused instead. After `__freeze()`, `performance.now`, `Date.now` and
-  `requestAnimationFrame` are virtual, and `__step(2)` advances them two 1/30 s ticks per
-  screenshot.
-  - The ticks are 1/30 s so the capped render scheduler sees enough timer/frame ticks. The production simulation subdivides elapsed time to preserve swim speed.
-  - `Date.now` has to be virtual too. Otherwise the chests' reset times passes in real time
-    mid-capture and it greys out as "reset · awaiting update".
-  - CSS animations have to follow it as well. They run on the real clock, so the Schools swatch
-    pulse played about 28x too fast in the GIF (2026-10-22) and looked like frantic blinking. Each
-    `__step` pauses every animation and sets its `currentTime` to the virtual time since it was
-    first seen; `main.js` recreates the pulses on each panel rebuild with a clock-derived delay, so
-    that keeps their phase.
-- **Pacing server updates.** If the clock is paused and the SSE stream isn't, the demo's real-time
-  tool calls pile up against a clock running about 28x slower, and the tank fills with bubbles.
-  `tank-boot.js` therefore replaces `EventSource` with a wrapper. While frozen, the wrapper queues
-  each event with its real arrival time and delivers it when virtual time catches up.
-- **Patching before `main.js` runs.** agent-browser has no init-script hook. So the script opens any
-  same-origin file (`/styles.css`), installs the patches, then `document.write()`s the fetched
-  `index.html`. The global object survives `document.open()`, so the module loads under the
-  patches. A 404 URL does not work: Chrome shows its own error page, on another origin.
-- **The still** is the first settled frame after freezing (`__step(6)`), at full 1600x900.
+Don't capture while another agent edits `wwwroot/`: the static assets are served from the source
+tree even when the .NET output is elsewhere. Capture-only module access is for layout/camera
+control; do not add that exposure to the production app.
 
-## GIF size trade-offs (measured on 135 frames, 9 s)
+## Legacy Git Bash capture
 
-| Width | fps | Colours | Size                   |
-| ----- | --- | ------- | ---------------------- |
-| 1120  | 15  | 192     | 7.0 MB                 |
-| 960   | 15  | 192     | 5.6 MB                 |
-| 1120  | 10  | 128     | 4.6 MB                 |
-| 1024  | 10  | 160     | 4.2 MB                 |
-| 960   | 12  | 128     | 3.9 MB, the one in use |
+`capture.sh` remains available on Windows with Git Bash, PowerShell, agent-browser and ffmpeg.
+It is slower (typically 5-15 minutes), builds to a temporary directory and refuses occupied
+ports or port 5180. Run `capture.sh <output-directory>`; `PORT` defaults to 5198.
 
-The assembly is `ffmpeg … fps=12,scale=960:-1:flags=lanczos,split … palettegen=max_colors=128:stats_mode=diff …
-paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle -loop 0`, as in `capture.sh`. Keep the GIF
-under about 5 MB; it is downloaded with the README.
+Only this legacy entry point supports `HOVER=1`; leave it off for README media. Its helper
+`pick.js` matches full Schools labels against drawn labels, so keep demo titles short enough
+not to be truncated. The Bash scene check uses the latest single `/api/usage` report below
+45% used, whereas the fast helper checks both sources through `/api/usages`.
 
-## Traps
-
-- **Demo labels must fit above the fish.** `drawLabel` cuts a label wider than 220 px with "…",
-  and `tank-boot.js` keys `__labels` by the text drawn, while `pick.js` reads the full name from the
-  Schools list. A demo title that gets cut never matches, so its fish is never hovered. Keep the
-  titles in `DemoSource.Sessions` under about 28 characters.
-- **The loop is not seamless**: it jumps from the last frame back to the first. That was accepted.
-  A cross-fade or ping-pong would cost size.
-- **Diver over a label.** The diver hovers at the waiting fish and can cover its label. Retake if it
-  hides the "needs you" text completely.
-- **Don't run it while other agents are editing `wwwroot/`.** The temp build serves the source
-  `wwwroot` through the static web assets manifest, so half-made edits end up in the shot.
-- **Removing temp folders:** use literal absolute paths. A `cd …; rm -rf dir/*` with a relative
-  glob is refused by Claude Code's safety check.
-- **If the server dies mid-capture** (for example a Bash background task hitting its timeout),
-  the events already queued still play, then the tank stops changing.
-- **Git Bash path conversion.** Git Bash rewrites path-like arguments for native programs, and a
-  JS argument starting with `//` counts. So `capture.sh` runs agent-browser under
-  `MSYS_NO_PATHCONV=1`, but not `taskkill`, whose `//PID` depends on the conversion.
-- **ESLint covers these scripts** through the `.claude/skills/**/*.js` block in
-  `eslint.config.js`, with browser globals and `sourceType: 'script'`.
+Preserve `capture.sh`'s executable bit (`git add --chmod=+x`). Its `MSYS_NO_PATHCONV=1` avoids
+Git Bash rewriting JavaScript arguments as Windows paths. Use literal, verified absolute paths
+for cleanup, and stop only the capture's owned server. Browser `.js` and Node `.mjs` helpers are
+covered by ESLint; check their formatting explicitly because the root Prettier scope is limited
+to frontend/tooling files.

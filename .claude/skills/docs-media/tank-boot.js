@@ -59,7 +59,7 @@
       a.currentTime = clock.vt - born.get(a);
     }
   };
-  // ms defaults to 1/30 s: main.js caps a frame at 50 ms, so bigger steps would slow the motion.
+  // Small ticks keep the capped renderer's timers and frame callbacks paced together.
   window.__step = (n = 1, ms = 1000 / 30) => {
     for (let i = 0; i < n; i++) {
       const due = S.rt0 + (clock.vt + ms - S.vt0);
