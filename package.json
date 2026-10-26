@@ -9,7 +9,8 @@
     "lint:css": "stylelint \"src/AgentAquarium/wwwroot/**/*.css\"",
     "lint:html": "html-validate \"src/AgentAquarium/wwwroot/**/*.html\"",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "test:js": "node --test tests/frontend/*.test.js"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

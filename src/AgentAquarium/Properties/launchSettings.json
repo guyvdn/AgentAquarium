@@ -18,6 +18,7 @@
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
         "Sources__ClaudeCode__Enabled": "false",
+        "Sources__Codex__Enabled": "false",
         "Sources__Demo__Enabled": "true"
       }
     }

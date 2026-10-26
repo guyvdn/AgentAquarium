@@ -46,16 +46,7 @@ export class Diver {
     this.queue = waitingOnYou(world.fish);
     const fish = this.queue[0];
 
-    let tx;
-    let ty;
-    if (fish) {
-      // Stay on whichever side of it we are already on, so the diver does not circle it.
-      const side = this.x < fish.x ? -1 : 1;
-      tx = fish.x + side * (fish.len * 0.5 + STAND_OFF);
-      ty = Math.max(world.top + 20, Math.min(world.floor - 20, fish.y + 6));
-    } else {
-      [tx, ty] = this.restPoint();
-    }
+    const [tx, ty] = this.targetPoint(world);
 
     const dx = tx - this.x;
     const dy = ty - this.y;
@@ -85,6 +76,32 @@ export class Diver {
       bubbles.spawn(hx, hy - 4, 3, 1.4);
       this.breathAt = t + BREATH_EVERY * (0.8 + Math.random() * 0.4);
     }
+  }
+
+  targetPoint(world) {
+    const fish = this.queue[0];
+    let tx;
+    let ty;
+    if (fish) {
+      // Stay on whichever side of it we are already on, so the diver does not circle it.
+      const side = this.x < fish.x ? -1 : 1;
+      tx = fish.x + side * (fish.len * 0.5 + STAND_OFF);
+      ty = Math.max(world.top + 20, Math.min(world.floor - 20, fish.y + 6));
+    } else {
+      [tx, ty] = this.restPoint();
+    }
+
+    return [tx, ty];
+  }
+
+  /** Keep the diver's meaning without a long swim in a static scene. */
+  settle(world) {
+    this.queue = waitingOnYou(world.fish);
+    [this.x, this.y] = this.targetPoint(world);
+    this.vx = this.vy = 0;
+    const fish = this.queue[0];
+    if (fish) this.facing = fish.x < this.x ? -1 : 1;
+    this.pitch = fish ? -0.15 : -1.25;
   }
 
   /** World position of the mask, where the bubbles come from. */

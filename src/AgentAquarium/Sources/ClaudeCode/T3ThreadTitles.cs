@@ -3,7 +3,7 @@ using Microsoft.Data.Sqlite;
 namespace AgentAquarium.Sources.ClaudeCode;
 
 /// <summary>
-/// The titles T3 Code shows for its threads, by Claude session id. T3 Code names threads itself
+/// The titles T3 Code shows for its threads, by native session id. T3 Code names threads itself
 /// rather than taking Claude's <c>ai-title</c>, so without this the Schools list shows a title that
 /// cannot be found in T3 Code's sidebar. Read from its state database. Undocumented, two layouts:
 /// <list type="bullet">
@@ -18,7 +18,8 @@ namespace AgentAquarium.Sources.ClaudeCode;
 /// After the update T3 Code leaves <c>state.sqlite</c> behind, frozen, so the newer file wins when both exist.
 /// </summary>
 /// <param name="stateFile">The database to read; null picks T3 Code's own, empty turns titles off.</param>
-public sealed class T3ThreadTitles(string? stateFile)
+/// <param name="driver">The native provider: claudeAgent or codex. Legacy titles are Claude-only.</param>
+public sealed class T3ThreadTitles(string? stateFile, string driver = "claudeAgent")
 {
     private const string V2Threads = "orchestration_v2_projection_threads";
 
@@ -27,12 +28,12 @@ public sealed class T3ThreadTitles(string? stateFile)
         select json_extract(r.resume_cursor_json, '$.resume'), t.title, 0, t.updated_at
         from provider_session_runtime r
         join {V2Threads} t on t.thread_id = r.thread_id
-        where t.deleted_at is null and json_valid(r.resume_cursor_json)
+        where $driver = 'claudeAgent' and t.deleted_at is null and json_valid(r.resume_cursor_json)
         union all
         select json_extract(p.payload_json, '$.nativeThreadRef.nativeId'), t.title, 1, p.updated_at
         from orchestration_v2_projection_provider_threads p
         join {V2Threads} t on t.thread_id = p.thread_id
-        where t.deleted_at is null and coalesce(p.driver, p.provider) = 'claudeAgent' and json_valid(p.payload_json)
+        where t.deleted_at is null and coalesce(p.driver, p.provider) = $driver and json_valid(p.payload_json)
         order by 3, 4
         """;
 
@@ -40,7 +41,7 @@ public sealed class T3ThreadTitles(string? stateFile)
         select json_extract(r.resume_cursor_json, '$.resume'), t.title
         from provider_session_runtime r
         join projection_threads t on t.thread_id = r.thread_id
-        where t.deleted_at is null and json_valid(r.resume_cursor_json)
+        where $driver = 'claudeAgent' and t.deleted_at is null and json_valid(r.resume_cursor_json)
         order by t.updated_at
         """;
 
@@ -80,6 +81,7 @@ public sealed class T3ThreadTitles(string? stateFile)
             using var command = connection.CreateCommand();
             // A busy database is retried until the timeout (30 s by default) and Poll waits for it.
             command.CommandTimeout = 1;
+            command.Parameters.AddWithValue("$driver", driver);
             command.CommandText = HasV2Query;
             var hasV2 = command.ExecuteScalar() is not null;
             if (hasV2)

@@ -85,6 +85,26 @@ public sealed class T3ThreadTitlesTests : IDisposable
     }
 
     [Fact]
+    public void Codex_titles_use_the_native_id_and_keep_provider_namespaces_separate()
+    {
+        Execute("""
+            create table orchestration_v2_projection_threads (thread_id text primary key, title text not null, updated_at text, deleted_at text);
+            create table orchestration_v2_projection_provider_threads (provider_thread_id text primary key, thread_id text, provider text, driver text, updated_at text, payload_json text);
+            insert into orchestration_v2_projection_threads values ('codex-thread', 'Codex task', '2026-10-26', null);
+            insert into orchestration_v2_projection_threads values ('claude-thread', 'Claude task', '2026-10-26', null);
+            insert into orchestration_v2_projection_provider_threads values
+              ('c1', 'codex-thread', 'codex', 'codex', '2026-10-26', '{"nativeThreadRef":{"nativeId":"shared-id"}}'),
+              ('c2', 'claude-thread', 'claudeAgent', 'claudeAgent', '2026-10-26', '{"nativeThreadRef":{"nativeId":"shared-id"}}');
+            """);
+        var codex = new T3ThreadTitles(StateFile, "codex");
+        var claude = new T3ThreadTitles(StateFile);
+        Assert.True(codex.Refresh());
+        Assert.True(claude.Refresh());
+        Assert.Equal("Codex task", codex.TitleFor("shared-id"));
+        Assert.Equal("Claude task", claude.TitleFor("shared-id"));
+    }
+
+    [Fact]
     public void Missing_database_reads_nothing() =>
         Assert.False(new T3ThreadTitles(Path.Combine(_dir, "missing.sqlite")).Refresh());
 

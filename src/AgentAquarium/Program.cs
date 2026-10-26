@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
 using AgentAquarium.Domain;
 using AgentAquarium.Sources.ClaudeCode;
+using AgentAquarium.Sources.Codex;
 using AgentAquarium.Sources.Demo;
 using AgentAquarium.Tank;
 
@@ -21,6 +22,8 @@ builder.Services.Configure<ClaudeCodeOptions>(builder.Configuration.GetSection("
 builder.Services.AddSingleton<PermissionRequests>();
 builder.Services.AddHostedService<ClaudeCodeSource>();
 builder.Services.AddHostedService<ClaudeUsageSource>();
+builder.Services.Configure<CodexOptions>(builder.Configuration.GetSection("Sources:Codex"));
+builder.Services.AddHostedService<CodexSource>();
 builder.Services.Configure<DemoOptions>(builder.Configuration.GetSection("Sources:Demo"));
 builder.Services.AddHostedService<DemoSource>();
 
@@ -37,6 +40,8 @@ app.UseStaticFiles(new StaticFileOptions
 app.MapGet("/api/agents", (AgentRegistry registry) => registry.Snapshot());
 
 app.MapGet("/api/usage", (UsageBoard usage) => usage.Current is { } current ? Results.Ok(current) : Results.NoContent());
+
+app.MapGet("/api/usages", (UsageBoard usage) => usage.Snapshot());
 
 // Claude Code's PermissionRequest hook, from the plugin in plugin/. An empty 2xx leaves the decision to the user.
 app.MapPost("/api/hooks/permission-request", (PermissionRequestHook hook, PermissionRequests requests, TimeProvider clock) =>
@@ -55,15 +60,16 @@ app.Run();
 static async IAsyncEnumerable<SseItem<object>> Stream(
     AgentRegistry registry, UsageBoard usage, [EnumeratorCancellation] CancellationToken ct)
 {
-    UsageSnapshot? sent = null;
+    var sent = new Dictionary<string, UsageSnapshot>(StringComparer.Ordinal);
     using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
     do
     {
         yield return new SseItem<object>(registry.Snapshot(), "snapshot");
-        if (usage.Current is { } current && current != sent)
-        {
-            sent = current;
-            yield return new SseItem<object>(current, "usage");
-        }
+        foreach (var current in usage.Snapshot())
+            if (sent.GetValueOrDefault(current.Source) != current)
+            {
+                sent[current.Source] = current;
+                yield return new SseItem<object>(current, "usage");
+            }
     } while (await timer.WaitForNextTickAsync(ct));
 }

@@ -1,4 +1,5 @@
 import { Fish } from './fish.js';
+import { MotionLoop } from './motion.js';
 import { Scenery, Bubbles } from './scenery.js';
 import { Chest } from './chest.js';
 import { Diver, waitsOnYou } from './diver.js';
@@ -7,7 +8,6 @@ import { fishColor } from './colors.js';
 const STREAM_URL = '/api/agents/stream';
 const RECONNECT_MAX_MS = 30_000;
 const SURFACE = 60; // px kept clear above the fish, under the title
-const MAX_DT = 0.05; // s; a backgrounded tab must not teleport the fish when it comes back
 const TOOLTIP_OFFSET = 14;
 const LABEL_MAX_WIDTH = 220; // px; session titles can be long
 const PULSE_MS = 2400; // one breath of the "needs you" glow on a Schools swatch
@@ -22,7 +22,19 @@ const connectionEl = document.getElementById('connection');
 
 const scenery = new Scenery();
 const bubbles = new Bubbles();
-const chest = new Chest();
+const chests = new Map([
+  ['claude-code', new Chest('Claude')],
+  ['codex', new Chest('Codex')],
+]);
+
+function chestFor(source) {
+  return chests.get(source === 'demo' ? 'claude-code' : source);
+}
+
+function placeChests() {
+  let index = 0;
+  for (const chest of chests.values()) if (chest.window) chest.place(world.width, world.floor, index++);
+}
 const diver = new Diver();
 const world = { fish: new Map(), width: 0, height: 0, top: 0, floor: 0 };
 
@@ -32,6 +44,25 @@ let hoverId = null;
 let pointer = null;
 let tooltipFor = null; // the agent snapshot the tooltip was last rendered for
 let markupTooltip = ''; // the chest's or diver's last tooltip markup
+
+let sceneTime = 0;
+const motion = new MotionLoop((dt, animate) => {
+  document.documentElement.classList.toggle('motion-paused', !animate);
+  if (animate) {
+    sceneTime += dt;
+    simulate(dt, sceneTime);
+  } else settle();
+  render(sceneTime);
+  updateTooltip();
+});
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+motion.setReduced(reducedMotion.matches);
+motion.setHidden(document.hidden);
+reducedMotion.addEventListener('change', event => motion.setReduced(event.matches));
+document.addEventListener('visibilitychange', () => {
+  motion.setHidden(document.hidden);
+  scheduleClock();
+});
 
 // --- layout -----------------------------------------------------------------
 
@@ -45,8 +76,9 @@ function resize() {
   scenery.resize(world.width, world.height, dpr);
   world.top = SURFACE;
   world.floor = scenery.floor;
-  chest.place(world.width, world.floor);
+  placeChests();
   diver.place(world.width, world.top);
+  motion.invalidate();
 }
 window.addEventListener('resize', resize);
 resize();
@@ -82,7 +114,11 @@ function connect() {
   });
   source.addEventListener('usage', e => {
     try {
-      chest.set(JSON.parse(e.data), bubbles);
+      const usage = JSON.parse(e.data);
+      const reset = chestFor(usage.source)?.set(usage, bubbles);
+      placeChests();
+      motion.invalidate(reset);
+      scheduleClock();
     } catch (err) {
       console.warn('Ignoring malformed usage', err);
     }
@@ -94,9 +130,19 @@ function setConnected(live) {
   connectionEl.title = live ? 'Live' : 'Disconnected — retrying';
 }
 
+let agentSignature = '';
+
 function apply(agents) {
+  // Heartbeat timestamps and the rolling activity score do not change the visible session state.
+  const signature = JSON.stringify(
+    agents
+      .map(({ lastSeen: _lastSeen, activity: _activity, ...agent }) => agent)
+      .sort((a, b) => a.id.localeCompare(b.id)),
+  );
+  if (signature === agentSignature) return;
+  agentSignature = signature;
   const seen = new Set();
-  let spent = 0;
+  const spent = new Map();
 
   // Parents first, so a new child can be born at its parent's mouth.
   for (const agent of [...agents].sort((a, b) => a.depth - b.depth)) {
@@ -106,7 +152,7 @@ function apply(agents) {
       fish.leaving = false;
       const delta = fish.update(agent);
       showChanges(fish, delta);
-      spent += delta.spent;
+      spent.set(agent.source, (spent.get(agent.source) ?? 0) + delta.spent);
     } else {
       // A new fish's spending so far is history (a transcript read from the start), not news.
       world.fish.set(agent.id, spawn(agent));
@@ -115,10 +161,11 @@ function apply(agents) {
 
   for (const fish of world.fish.values()) if (!seen.has(fish.id)) fish.leaving = true;
 
-  chest.spend(spent);
+  for (const [source, amount] of spent) chestFor(source)?.spend(amount);
   firstSnapshot = false;
   renderPanel(agents);
   emptyEl.hidden = agents.length > 0;
+  motion.invalidate(true);
 }
 
 /** Bubbles for tool calls, a red flash for errors, a squeeze and a burst for a compaction. */
@@ -151,17 +198,34 @@ function spawn(agent) {
 
 // --- loop -------------------------------------------------------------------
 
-let last = performance.now();
+// Clock-only changes need one still frame, not a permanent animation loop.
+let clockTimer;
+function scheduleClock() {
+  clearTimeout(clockTimer);
+  if (document.hidden) return;
+  const now = Date.now();
+  let next = (Math.floor(now / 60_000) + 1) * 60_000;
+  for (const chest of chests.values()) {
+    for (const deadline of [Date.parse(chest.window?.resetsAt), Date.parse(chest.usage?.asOf) + 30 * 60_000])
+      if (deadline > now) next = Math.min(next, deadline);
+  }
+  clockTimer = setTimeout(
+    () => {
+      motion.invalidate([...chests.values()].some(chest => chest.resetDue()));
+      scheduleClock();
+    },
+    Math.max(1, next - now),
+  );
+}
 
-function frame(nowMs) {
-  const dt = Math.min(MAX_DT, (nowMs - last) / 1000);
-  last = nowMs;
-  const t = nowMs / 1000;
-
-  simulate(dt, t);
-  render(t);
-  updateTooltip();
-  requestAnimationFrame(frame);
+function settle() {
+  for (const [id, fish] of world.fish) {
+    if (fish.leaving || fish.done) world.fish.delete(id);
+    else fish.settle(world);
+  }
+  for (const chest of chests.values()) chest.settle();
+  bubbles.items = [];
+  diver.settle(world);
 }
 
 function simulate(dt, t) {
@@ -175,7 +239,7 @@ function simulate(dt, t) {
       bubbles.spawn(mx, my, 1, 1.2);
     }
 
-  chest.step(dt, bubbles);
+  for (const chest of chests.values()) chest.step(dt, bubbles);
   diver.step(dt, t, world, bubbles);
   scenery.step(dt, t);
   scenery.emitAmbient(t, bubbles);
@@ -184,16 +248,16 @@ function simulate(dt, t) {
 
 function render(t) {
   scenery.drawBack(ctx, t);
-  chest.draw(ctx, t);
+  for (const chest of chests.values()) chest.draw(ctx, t);
   diver.drawBoat(ctx);
   // Descendants first, so parents swim on top of their school.
   const ordered = [...world.fish.values()].sort((a, b) => b.agent.depth - a.agent.depth || a.len - b.len);
   for (const fish of ordered) fish.draw(ctx, fish.id === highlightId || fish.id === hoverId);
   diver.draw(ctx);
   bubbles.draw(ctx);
-  chest.drawFront(ctx);
+  for (const chest of chests.values()) chest.drawFront(ctx);
   scenery.drawFront(ctx);
-  chest.drawLabel(ctx);
+  for (const chest of chests.values()) chest.drawLabel(ctx);
   for (const fish of ordered) if (fish.isRoot) drawLabel(fish);
 }
 
@@ -283,16 +347,20 @@ function row(a, depth) {
 
 schoolsEl.addEventListener('mouseover', e => {
   highlightId = e.target.closest('li')?.dataset.id ?? null;
+  motion.invalidate();
 });
 schoolsEl.addEventListener('mouseleave', () => {
   highlightId = null;
+  motion.invalidate();
 });
 
 canvas.addEventListener('mousemove', e => {
   pointer = [e.clientX, e.clientY];
+  motion.invalidate();
 });
 canvas.addEventListener('mouseleave', () => {
   pointer = null;
+  motion.invalidate();
 });
 
 /** The fish under the pointer, preferring the shallowest generation where they overlap. */
@@ -307,7 +375,7 @@ function updateTooltip() {
   // Front first, as drawn: the diver swims over the fish, the chest sits behind them.
   const onDiver = pointer && diver.hit(...pointer);
   const fish = pointer && !onDiver && fishAt(pointer);
-  const other = onDiver ? diver : !fish && pointer && chest.hit(...pointer) ? chest : null;
+  const other = onDiver ? diver : !fish && pointer ? [...chests.values()].find(chest => chest.hit(...pointer)) : null;
   const id = fish ? fish.id : null;
   if (id !== hoverId) markHoveredRow((hoverId = id));
   tooltipEl.hidden = !fish && !other;
@@ -377,4 +445,5 @@ function escapeHtml(s) {
 }
 
 connect();
-requestAnimationFrame(frame);
+motion.invalidate();
+scheduleClock();

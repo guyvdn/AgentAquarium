@@ -137,6 +137,13 @@ canvas#tank {
   }
 }
 
+.motion-paused .panel .swatch.pulse {
+  animation: none;
+  box-shadow:
+    0 0 0 1.5px #031524,
+    0 0 0 3px var(--swatch);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .panel .swatch.pulse {
     animation: none;

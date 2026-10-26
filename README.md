@@ -16,7 +16,7 @@ A live aquarium of your AI coding agents. Each session is a school of fish: the 
 | Compaction | Squeeze + burst of bubbles; the fish shrinks |
 | Subagent finished | Swims off and fades |
 
-The treasure chest on the sand is your plan's **5-hour limit**: the gold is what is left, the lid opens as far as there is gold to show, and spending lets coins float away. The limit's numbers only change every 20 minutes or so, so the coins follow the tokens your agents spend instead, one per 20k weighted the way API pricing weighs them (a cache read a tenth of fresh input, output 5×): six busy agents send up six times the coins of one. It glows amber below 30% and pulses red below 10%; when the window resets it refills with a burst. Grey means the numbers are old (over 30 minutes, or the window has reset since). Hover it for the weekly limit too.
+The treasure chests on the sand show each provider's **5-hour limit**, labelled **Claude** and **Codex**: the gold is what is left, the lid opens as far as there is gold to show, and spending lets coins float away. The limit's numbers only change every 20 minutes or so, so the coins follow the tokens your agents spend instead, one per 20k weighted the way API pricing weighs them (a cache read a tenth of fresh input, output 5×): six busy agents send up six times the coins of one. It glows amber below 30% and pulses red below 10%; when the window resets it refills with a burst. Grey means the numbers are old (over 30 minutes, or the window has reset since). Hover either chest for its weekly limit too. Each chest only releases coins for its own provider. Codex limits come from rate-limit reports in local session logs and refresh as Codex runs; no usage API calls are made.
 
 The diver is **you**. It swims to whichever agent has waited on you longest, agents blocked mid-turn before ones that merely finished, and climbs back up the boat's ladder when nobody waits. The badge over its head counts who is waiting, amber when one of them is blocked; hover it for the list with how long each has waited. "Blocked" comes from Claude Code's live-session registry (`status: "waiting"`, interactive CLI only) and, for SDK hosts such as T3 Code, from an `AskUserQuestion` or `ExitPlanMode` still unanswered in the transcript. A permission prompt in an SDK host leaves no trace in either: install the plugin below to see those too. Without it, such a session shows as working until the prompt is answered. A session whose turn ended while a background command, subagent or monitor it started still runs is not waiting on you: Claude Code wakes it when that work reports back, so the diver leaves it alone. The transcript says when it does: a `<task-notification>` with a final status, a subagent's hand-back, or a `TaskStop`. Work that never reports back is let go when the session's process restarts, when a monitor's own timeout passes, or after 2 hours.
 
@@ -29,7 +29,7 @@ Hover a fish for its context, status, last tool, tool calls, errors and compacti
 ## Run
 
 ```bash
-dotnet run --project src/AgentAquarium --launch-profile live   # your real Claude Code sessions
+dotnet run --project src/AgentAquarium --launch-profile live   # your real Claude Code and Codex sessions
 dotnet run --project src/AgentAquarium --launch-profile demo   # synthetic agents and usage, for working on the visuals
 ```
 
@@ -51,6 +51,9 @@ It adds a `PermissionRequest` hook (`plugin/hooks/hooks.json`) that posts each p
 
 Settings are in `src/AgentAquarium/appsettings.json`:
 
+- `Sources:Codex:Enabled` (default `true`): watch Codex sessions alongside Claude Code. `SessionRoots` defaults to `$CODEX_HOME/sessions`, or `~/.codex/sessions`. Add another profile's `sessions` folder to watch it too. The source tails rollout JSONL logs for context size, tool calls, questions, compaction and turn completion; native subagents join their parent's school. Internal permission-review (guardian) sessions are hidden. Codex IDs are prefixed so the two sources cannot collide.
+- `Sources:Codex:PollInterval` (default 1 s) and `LookBack` (30 min): writer locks in the profile's `thread-writer-locks` folder keep open sessions visible even when idle, and released locks remove them. When no usable lock exists (including macOS), recent transcript writes are the fallback. Old Codex versions without turn-completion events may show working until the tank's stall timeout. Permission approvals are not reported by the rollout log, so those do not yet turn a Codex fish amber. Explicit user-input tool calls do.
+- `Sources:Codex:T3StateFile` and `T3PollInterval` work like the Claude Code settings below, independently: Codex sessions in T3 use the sidebar title and show `T3 Code · Codex` beneath it. The Codex chest uses the five-hour and weekly `rate_limits` in `token_count` events from recent rollout logs, including recently closed sessions. Its coins follow new token growth, price-weighted like Claude’s, with replayed history excluded. Each provider keeps its own latest report; an older Codex log cannot overwrite a newer report.
 - `Sources:ClaudeCode:ProjectRoots`: transcript folders. The default is `~/.claude/projects`. Add another profile's `projects` folder to watch it too.
 - `Sources:ClaudeCode:LookBack`: fallback only. A session is shown while its process runs, according to Claude Code's live-session registry (`<config>/sessions/<pid>.json`, checked against the process start time because pids get reused). If that registry is missing (older Claude Code), sessions whose transcript changed within this window are shown instead.
 - `Sources:ClaudeCode:UsageFile`: where the chest's numbers come from, Claude Code's own cache of its `/usage` call (`cachedUsageUtilization`). Default `~/.claude.json`; a profile with its own `CLAUDE_CONFIG_DIR` keeps it at `<dir>/.claude.json`. Empty string, or `Sources:ClaudeCode:Enabled=false`, turns the chest off: it only appears once a 5-hour window has been reported. One file is read even when `ProjectRoots` lists several profiles. `UsagePollInterval` (default 10 s) is how often its timestamp is checked; it is only parsed when it changed. The aquarium never calls the usage API itself: that endpoint is rate limited hard and shares its budget with Claude Code, so the numbers are only as fresh as Claude Code's last fetch (roughly every 20 minutes while it runs). Undocumented, checked against Claude Code 2.1.300.
@@ -59,11 +62,18 @@ Settings are in `src/AgentAquarium/appsettings.json`:
 - `Tank:StallAfter` / `ForgetAfter` / `DoneLinger` (defaults 5 min, 30 min, 20 s): when silent agents turn idle (not while a tool call or background work they started still runs: a build can take many minutes), leave (subagents, and sessions when the live-session registry is missing), and when finished subagents leave. `Tank:ActivityWindow` (60 s) is how far back events count towards swim speed.
 - `Sources:Demo:Sessions` (default 3): how many sessions the `demo` profile starts with.
 
+## Rendering and power use
+
+The canvas animates at up to 24 fps for three seconds after a session changes, then stays still until another change, hover, resize or clock update. Heartbeats and the rolling activity score do not wake it. Status, context, tool calls and errors still update live; a quiet working session remains labelled working even while its fish rests. Waiting dots use steady rings while the scene is still.
+
+Hidden tabs stop scheduling frames and catch up to the latest state when shown, without replaying missed animations. The operating system's `prefers-reduced-motion` setting uses still frames throughout. Chest resets and freshness labels update on a lightweight clock timer. See [the measured before/after results](docs/performance.md).
+
 ## Development
 
 ```bash
 dotnet build && dotnet test          # Meziantou + .NET analyzers (latest-all), warnings are errors
 npm install && npm run lint          # ESLint, Stylelint, html-validate for wwwroot
+npm run test:js                      # animation scheduler tests
 npm run format                       # Prettier; dotnet format for C#
 ```
 
@@ -75,6 +85,8 @@ flowchart LR
   L[live-session registry<br/>~/.claude/sessions/*.json] --> CC
   T3[T3 Code thread titles<br/>~/.t3/userdata/statev2.sqlite] --> CC
   H[plugin PermissionRequest hook] -->|POST /api/hooks/permission-request| PR[PermissionRequests] --> CC
+  CX[Codex rollout logs + writer locks] --> CS[CodexSource] --> S
+  T3 --> CS
   D[DemoSource] --> S
   CC --> S[IAgentSink<br/>AgentRegistry]
   U[~/.claude.json<br/>cachedUsageUtilization] --> CU[ClaudeUsageSource] --> UB[IUsageSink<br/>UsageBoard]
@@ -84,8 +96,9 @@ flowchart LR
 
 - **`Domain/AgentModel.cs`** is the seam. Sources only speak `AgentDescriptor` (identity, parent, depth) and `AgentObservation` (context, tool call, error, compaction, status). Nothing downstream knows about Claude Code.
 - **`Sources/ClaudeCode`**: `ClaudeCodeSource` reads `<session>.jsonl` for the main agent and `<session>/subagents/agent-<id>.jsonl` plus `.meta.json` for subagents. A subagent's parent is the agent whose transcript contains the spawning `tool_use` id, so nesting deeper than one level works without special cases. Context = `input + cache_read + cache_creation + output` tokens of the latest assistant message; spend is the same usage price-weighted, counted once per message id and only while it is new (replayed history spends nothing). The transcript format is undocumented (checked against Claude Code 2.1.300), so the parser ignores whatever it does not recognise. `LiveSessions` reads the registry that says which sessions still run and whether they wait on you; `PermissionRequests` hands the plugin's posts over to the source, which matches each to an open tool call (see the `plugin-hooks` skill). `T3ThreadTitles` reads T3 Code's thread titles by Claude session id. `ClaudeUsageSource` reads the chest's numbers.
-- **`Tank/AgentRegistry`** holds state, derives activity and staleness, and prunes. **`Tank/UsageBoard`** holds the latest usage report; an older one never replaces a newer one.
-- **Endpoints**: `/api/agents/stream` (SSE: `snapshot` every 500 ms, `usage` on connect and on change), `/api/agents` and `/api/usage` (one-off JSON, `204` before any usage is known), and `POST /api/hooks/permission-request` for the plugin.
+- **`Sources/Codex`**: `CodexSource` tails `sessions/**/*.jsonl`, checks writer locks for session lifetime, and reads T3 titles by native Codex thread ID. `CodexTranscript` maps known rollout events onto the same source-neutral observations. The local format is undocumented; checked against the installed Codex logs on 2026-10-26.
+- **`Tank/AgentRegistry`** holds state, derives activity and staleness, and prunes. **`Tank/UsageBoard`** holds the latest usage report for each source; an older one never replaces a newer report from that source.
+- **Endpoints**: `/api/agents/stream` (SSE: `snapshot` every 500 ms, `usage` per source on connect and on change), `/api/agents`, `/api/usages` (all provider reports), and the legacy `/api/usage` (latest single report, `204` before any usage is known), and `POST /api/hooks/permission-request` for the plugin.
 - **`wwwroot/js`** is plain ES modules on Canvas 2D, with no build step. Static files are served `Cache-Control: no-cache`, so a reload always picks up a changed module. `main.js` runs the loop, the Schools list and the tooltips, `fish.js` handles steering and drawing, `scenery.js` the water, `chest.js` the treasure chest, `diver.js` the diver, `colors.js` the session hue × generation tone. The page is installable through `manifest.webmanifest` and `icons/`.
 
 ### Adding a source

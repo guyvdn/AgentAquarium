@@ -27,7 +27,8 @@ const MAX_OWED = 24; // coins; a flood of history (a server restart replaying tr
 const HEAP_COINS = Array.from({ length: 18 }, (_, i) => ({ u: ((i * 0.618) % 1) * 0.8 + 0.1, v: (i + 0.5) / 18 }));
 
 export class Chest {
-  constructor() {
+  constructor(label = 'Claude') {
+    this.label = label;
     this.usage = null;
     this.shown = 0; // remaining fraction as drawn, eased towards the real one
     this.celebrated = null; // reset time (ms) of the window whose refill has been shown
@@ -41,8 +42,8 @@ export class Chest {
     this.y = 0;
   }
 
-  place(width, floor) {
-    this.x = Math.max(WIDTH, width * 0.12);
+  place(width, floor, index = 0) {
+    this.x = Math.min(width - 65, Math.max(65, width * 0.12) + index * 150);
     this.y = floor + SINK; // bottom of the body
   }
 
@@ -51,18 +52,22 @@ export class Chest {
     const prev = this.window;
     this.usage = usage;
     const w = this.window;
-    if (!w) return;
+    if (!w) return false;
     if (!prev) {
       // Nothing to animate on the first report, and a reset that already passed is old news.
       if (resetPassed(w)) this.celebrated = time(w.resetsAt);
-      return;
+      return false;
     }
 
     const newWindow =
       prev.resetsAt && w.resetsAt
         ? time(w.resetsAt) - time(prev.resetsAt) > NEW_WINDOW_MS
         : prev.usedPercent - w.usedPercent >= RESET_DROP;
-    if (newWindow && (!prev.resetsAt || !sameReset(this.celebrated, time(prev.resetsAt)))) this.celebrate(bubbles);
+    if (newWindow && (!prev.resetsAt || !sameReset(this.celebrated, time(prev.resetsAt)))) {
+      this.celebrate(bubbles);
+      return true;
+    }
+    return false;
   }
 
   /** Weighted tokens the agents spent since the last snapshot. */
@@ -96,10 +101,23 @@ export class Chest {
     return now - time(this.usage.asOf) > STALE_AFTER_MS || resetPassed(w, now);
   }
 
+  settle() {
+    this.shown = this.remaining() ?? 0;
+    if (this.window && resetPassed(this.window)) this.celebrated = time(this.window.resetsAt);
+    this.coins = [];
+    this.sparkles = [];
+    this.burst = 0;
+  }
+
+  resetDue(now = Date.now()) {
+    const w = this.window;
+    return Boolean(w && resetPassed(w, now) && !sameReset(this.celebrated, time(w.resetsAt)));
+  }
+
   step(dt, bubbles) {
     // The window resets on the clock, not when the next report arrives (which can be 20 minutes later).
     const w = this.window;
-    if (w && resetPassed(w) && !sameReset(this.celebrated, time(w.resetsAt))) {
+    if (this.resetDue()) {
       this.celebrated = time(w.resetsAt);
       this.celebrate(bubbles);
     }
@@ -326,6 +344,7 @@ export class Chest {
     ctx.font = '600 12px "Segoe UI", system-ui, sans-serif';
     const gold = goldColor(this.shown); // the colour the chest is drawn in, so the two agree
     ctx.fillStyle = stale ? 'rgba(200, 210, 220, 0.75)' : `hsl(${gold.h} ${gold.s}% 65%)`;
+    ctx.fillText(this.label, this.x, y - 26);
     ctx.fillText(`${Math.round(remaining * 100)}% left`, this.x, y - 10);
     ctx.font = '11px "Segoe UI", system-ui, sans-serif';
     ctx.fillStyle = 'rgba(220, 240, 255, 0.75)';
@@ -346,7 +365,7 @@ export class Chest {
   }
 
   hit(px, py) {
-    return Boolean(this.window) && Math.abs(px - this.x) < WIDTH / 2 + 10 && py > this.labelTop() - 20 && py < this.y;
+    return Boolean(this.window) && Math.abs(px - this.x) < WIDTH / 2 + 10 && py > this.labelTop() - 38 && py < this.y;
   }
 
   tooltipHtml(escapeHtml) {
@@ -355,7 +374,7 @@ export class Chest {
       w
         ? `${name}: ${Math.round(w.usedPercent)}% used${w.resetsAt ? ` <span class="dim">· resets ${day ? weekdayClock(w.resetsAt) : clock(w.resetsAt)}</span>` : ''}<br>`
         : '';
-    return `<strong>5-hour limit</strong> <span class="dim">· gold = what is left</span><br>
+    return `<strong>${escapeHtml(this.label)} · 5-hour limit</strong> <span class="dim">· gold = what is left</span><br>
       ${line('5 hours', u.fiveHour, false)}
       ${line('7 days', u.sevenDay, true)}
       <span class="dim">${escapeHtml(u.source)} · as of ${clock(u.asOf)}${this.stale() ? ' (stale)' : ''}</span>`;

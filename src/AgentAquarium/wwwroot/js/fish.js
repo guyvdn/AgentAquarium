@@ -75,6 +75,17 @@ export class Fish {
     };
   }
 
+  /** Finish transient effects when the scene sleeps or motion is reduced. */
+  settle(world) {
+    this.len = lengthFor(this.agent.contextTokens);
+    // A newly discovered fish may have spawned outside the tank for an animated entrance.
+    const margin = Math.min(this.len, world.width / 2);
+    this.x = clamp(this.x, margin, world.width - margin);
+    this.y = clamp(this.y, world.top + TOP_MARGIN, world.floor - this.len * 0.25);
+    this.opacity = 1;
+    this.flash = this.squeeze = 0;
+  }
+
   step(dt, now, world) {
     const a = this.agent;
     this.activity = lerp(this.activity, a.activity, dt * 2);
